@@ -32,6 +32,8 @@ final class IssueWorkflow
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            Gate::forUser($actor)->authorize('recordInitialReported', $lockedIssue);
+
             if ($this->statusOf($lockedIssue) !== IssueStatus::Reported) {
                 throw new DomainException('Only a reported issue can receive its initial status history.');
             }
