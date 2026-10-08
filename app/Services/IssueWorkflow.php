@@ -7,8 +7,10 @@ namespace App\Services;
 use App\Enums\IssueStatus;
 use App\Events\IssueStatusChanged;
 use App\Exceptions\InvalidIssueTransition;
+use App\Models\Assignment;
 use App\Models\Issue;
 use App\Models\StatusHistory;
+use App\Models\Team;
 use App\Models\User;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -70,6 +72,102 @@ final class IssueWorkflow
         string $reason,
     ): StatusHistory {
         return $this->transition($issue, IssueStatus::Rejected, $coordinator, $reason);
+    }
+
+    public function assign(
+        Issue $issue,
+        Team $team,
+        User $technician,
+        User $coordinator,
+    ): Assignment {
+        return DB::transaction(function () use ($issue, $team, $technician, $coordinator): Assignment {
+            $lockedIssue = Issue::query()
+                ->whereKey($issue->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $status = $this->statusOf($lockedIssue);
+
+            if (! in_array($status, [IssueStatus::Verified, IssueStatus::Assigned], true)) {
+                throw new InvalidIssueTransition($status, IssueStatus::Assigned);
+            }
+
+            Gate::forUser($coordinator)->authorize(
+                'assignIssue',
+                [$lockedIssue, $team, $technician],
+            );
+
+            $assignedAt = now();
+
+            Assignment::query()
+                ->where('issue_id', $lockedIssue->getKey())
+                ->whereNull('released_at')
+                ->lockForUpdate()
+                ->get()
+                ->each(static function (Assignment $activeAssignment) use ($assignedAt): void {
+                    $activeAssignment->forceFill(['released_at' => $assignedAt])->saveOrFail();
+                });
+
+            $assignment = Assignment::query()->create([
+                'issue_id' => $lockedIssue->getKey(),
+                'team_id' => $team->getKey(),
+                'technician_id' => $technician->getKey(),
+                'assigned_by' => $coordinator->getKey(),
+                'assigned_at' => $assignedAt,
+            ]);
+
+            if ($status === IssueStatus::Verified) {
+                $this->transition($lockedIssue, IssueStatus::Assigned, $coordinator);
+            }
+
+            return $assignment;
+        });
+    }
+
+    public function acceptAssignment(Assignment $assignment, User $technician): Assignment
+    {
+        return DB::transaction(function () use ($assignment, $technician): Assignment {
+            $assignmentSnapshot = Assignment::query()
+                ->whereKey($assignment->getKey())
+                ->firstOrFail();
+
+            $lockedIssue = Issue::query()
+                ->whereKey($assignmentSnapshot->issue_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $lockedAssignment = Assignment::query()
+                ->whereKey($assignmentSnapshot->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedAssignment->released_at !== null) {
+                throw new DomainException('A released assignment cannot be accepted.');
+            }
+
+            if ($lockedAssignment->accepted_at !== null) {
+                throw new DomainException('This assignment has already been accepted.');
+            }
+
+            Gate::forUser($technician)->authorize(
+                'acceptAssignment',
+                [$lockedIssue, $lockedAssignment],
+            );
+
+            $lockedAssignment->forceFill(['accepted_at' => now()])->saveOrFail();
+
+            return $lockedAssignment;
+        });
+    }
+
+    public function start(Issue $issue, User $technician): StatusHistory
+    {
+        return $this->transition($issue, IssueStatus::InProgress, $technician);
+    }
+
+    public function putOnHold(Issue $issue, User $technician, string $reason): StatusHistory
+    {
+        return $this->transition($issue, IssueStatus::OnHold, $technician, $reason);
     }
 
     public function transition(
