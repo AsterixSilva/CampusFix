@@ -26,7 +26,7 @@ The merged state is reserved for the later duplicate-merge step. It is not reach
 - Progress updates use the shared `comments` table with `issue_id`, `user_id`, `body`, `created_at`, and `updated_at`.
 - Resolutions record `issue_id`, `assignment_id`, `resolved_by`, `root_cause`, `action_taken`, `parts_used`, and `minutes_spent`.
 - The reporting service calls `IssueWorkflow::recordInitialReported()` after creating a reported issue and adding the reporter relation.
-- Verification, rejection, assignment, acceptance, work updates, and status changes go through `IssueWorkflow`; UI components do not write workflow data directly.
+- Verification, rejection, assignment, acceptance, work updates, resolution, close, reopen, and status changes go through `IssueWorkflow`; UI components do not write workflow data directly.
 - Include `routes/member-3.php` from the app's authenticated web routes.
 - Migrations depend on the shared `issues`, `users`, and `teams` tables; assignments must be created before resolutions.
 
