@@ -30,7 +30,7 @@ enum IssueStatus: string
         'verified' => ['assigned', 'rejected'],
         'assigned' => ['in_progress'],
         'in_progress' => ['resolved', 'on_hold'],
-        'on_hold' => ['assigned', 'in_progress'],
+        'on_hold' => ['in_progress'],
         'resolved' => ['closed', 'reopened'],
         'closed' => ['reopened'],
         'reopened' => ['verified'],
