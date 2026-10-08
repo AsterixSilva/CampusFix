@@ -11,6 +11,18 @@ use Illuminate\Support\Facades\DB;
 
 final class IssuePolicy
 {
+    public function recordInitialReported(User $actor, Issue $issue): bool
+    {
+        $rawStatus = $issue->getRawOriginal('status') ?? $issue->getAttribute('status');
+        $status = $rawStatus instanceof IssueStatus
+            ? $rawStatus
+            : IssueStatus::tryFrom((string) $rawStatus);
+
+        return (string) $actor->role === 'member'
+            && $status === IssueStatus::Reported
+            && $this->isReporter($actor, $issue);
+    }
+
     public function transitionStatus(User $actor, Issue $issue, IssueStatus $target): bool
     {
         $rawStatus = $issue->getRawOriginal('status') ?? $issue->getAttribute('status');
