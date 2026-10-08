@@ -56,12 +56,31 @@ final class IssueWorkflow
         });
     }
 
+    public function verify(
+        Issue $issue,
+        User $coordinator,
+        ?string $reason = null,
+    ): StatusHistory {
+        return $this->transition($issue, IssueStatus::Verified, $coordinator, $reason);
+    }
+
+    public function reject(
+        Issue $issue,
+        User $coordinator,
+        string $reason,
+    ): StatusHistory {
+        return $this->transition($issue, IssueStatus::Rejected, $coordinator, $reason);
+    }
+
     public function transition(
         Issue $issue,
         IssueStatus $target,
         User $actor,
         ?string $reason = null,
     ): StatusHistory {
+        $reason = $this->normalizeReason($reason);
+        $this->assertRequiredReason($target, $reason);
+
         return DB::transaction(function () use ($issue, $target, $actor, $reason): StatusHistory {
             $lockedIssue = Issue::query()
                 ->whereKey($issue->getKey())
@@ -83,7 +102,7 @@ final class IssueWorkflow
                 'from_status' => $from->value,
                 'to_status' => $target->value,
                 'actor_id' => $actor->getKey(),
-                'reason' => $this->normalizeReason($reason),
+                'reason' => $reason,
             ]);
 
             $this->dispatchAfterCommit($history);
@@ -113,6 +132,19 @@ final class IssueWorkflow
         $reason = $reason === null ? null : trim($reason);
 
         return $reason === '' ? null : $reason;
+    }
+
+    private function assertRequiredReason(IssueStatus $target, ?string $reason): void
+    {
+        if (
+            in_array($target, [IssueStatus::Rejected, IssueStatus::OnHold, IssueStatus::Reopened], true)
+            && $reason === null
+        ) {
+            throw new DomainException(sprintf(
+                'A reason is required when moving an issue to "%s".',
+                $target->value,
+            ));
+        }
     }
 
     private function dispatchAfterCommit(StatusHistory $history): void
