@@ -27,7 +27,6 @@ final class IssuePolicy
             'reported->rejected',
             'verified->assigned',
             'verified->rejected',
-            'on_hold->assigned',
             'reopened->verified' => $this->isCoordinator($actor),
 
             'assigned->in_progress',
