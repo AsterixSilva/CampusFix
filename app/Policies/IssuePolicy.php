@@ -53,6 +53,12 @@ final class IssuePolicy
             && $this->statusOf($issue) === IssueStatus::Assigned;
     }
 
+    public function addProgressUpdate(User $actor, Issue $issue): bool
+    {
+        return in_array($this->statusOf($issue), [IssueStatus::InProgress, IssueStatus::OnHold], true)
+            && $this->isAcceptedTechnician($actor, $issue);
+    }
+
     public function transitionStatus(User $actor, Issue $issue, IssueStatus $target): bool
     {
         $from = $this->statusOf($issue);
