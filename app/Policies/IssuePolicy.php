@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Policies;
 
 use App\Enums\IssueStatus;
+use App\Models\Assignment;
 use App\Models\Issue;
+use App\Models\Team;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -13,22 +15,47 @@ final class IssuePolicy
 {
     public function recordInitialReported(User $actor, Issue $issue): bool
     {
-        $rawStatus = $issue->getRawOriginal('status') ?? $issue->getAttribute('status');
-        $status = $rawStatus instanceof IssueStatus
-            ? $rawStatus
-            : IssueStatus::tryFrom((string) $rawStatus);
-
         return (string) $actor->role === 'member'
-            && $status === IssueStatus::Reported
+            && $this->statusOf($issue) === IssueStatus::Reported
             && $this->isReporter($actor, $issue);
+    }
+
+    public function assignIssue(
+        User $actor,
+        Issue $issue,
+        Team $team,
+        User $technician,
+    ): bool {
+        if (
+            ! $this->isCoordinator($actor)
+            || (string) $technician->role !== 'technician'
+            || ! in_array($this->statusOf($issue), [IssueStatus::Verified, IssueStatus::Assigned], true)
+        ) {
+            return false;
+        }
+
+        return DB::table('team_user')
+            ->where('team_id', $team->getKey())
+            ->where('user_id', $technician->getKey())
+            ->exists();
+    }
+
+    public function acceptAssignment(
+        User $actor,
+        Issue $issue,
+        Assignment $assignment,
+    ): bool {
+        return (string) $actor->role === 'technician'
+            && (string) $assignment->issue_id === (string) $issue->getKey()
+            && (string) $assignment->technician_id === (string) $actor->getKey()
+            && $assignment->accepted_at === null
+            && $assignment->released_at === null
+            && $this->statusOf($issue) === IssueStatus::Assigned;
     }
 
     public function transitionStatus(User $actor, Issue $issue, IssueStatus $target): bool
     {
-        $rawStatus = $issue->getRawOriginal('status') ?? $issue->getAttribute('status');
-        $from = $rawStatus instanceof IssueStatus
-            ? $rawStatus
-            : IssueStatus::tryFrom((string) $rawStatus);
+        $from = $this->statusOf($issue);
 
         if ($from === null || ! $from->canTransitionTo($target)) {
             return false;
@@ -83,5 +110,14 @@ final class IssuePolicy
         return $issue->reporters()
             ->whereKey($actor->getKey())
             ->exists();
+    }
+
+    private function statusOf(Issue $issue): ?IssueStatus
+    {
+        $rawStatus = $issue->getRawOriginal('status') ?? $issue->getAttribute('status');
+
+        return $rawStatus instanceof IssueStatus
+            ? $rawStatus
+            : IssueStatus::tryFrom((string) $rawStatus);
     }
 }
