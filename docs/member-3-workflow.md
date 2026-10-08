@@ -8,7 +8,7 @@ This branch owns the issue status machine and append-only status history.
 - verified -> assigned or rejected
 - assigned -> in_progress
 - in_progress -> on_hold or resolved
-- on_hold -> assigned or in_progress
+- on_hold -> in_progress
 - resolved -> closed or reopened
 - closed -> reopened
 - reopened -> verified
