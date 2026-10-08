@@ -9,12 +9,14 @@ use App\Events\IssueStatusChanged;
 use App\Exceptions\InvalidIssueTransition;
 use App\Models\Assignment;
 use App\Models\Issue;
+use App\Models\Resolution;
 use App\Models\StatusHistory;
 use App\Models\Team;
 use App\Models\User;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use InvalidArgumentException;
 use LogicException;
 use UnexpectedValueException;
 
@@ -168,6 +170,114 @@ final class IssueWorkflow
     public function putOnHold(Issue $issue, User $technician, string $reason): StatusHistory
     {
         return $this->transition($issue, IssueStatus::OnHold, $technician, $reason);
+    }
+
+    public function updateProgress(Issue $issue, User $technician, string $body): int
+    {
+        $body = trim($body);
+
+        if ($body === '') {
+            throw new InvalidArgumentException('A progress update cannot be empty.');
+        }
+
+        return DB::transaction(function () use ($issue, $technician, $body): int {
+            $lockedIssue = Issue::query()
+                ->whereKey($issue->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            Gate::forUser($technician)->authorize('addProgressUpdate', $lockedIssue);
+
+            $now = now();
+
+            return (int) DB::table('comments')->insertGetId([
+                'issue_id' => $lockedIssue->getKey(),
+                'user_id' => $technician->getKey(),
+                'body' => $body,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        });
+    }
+
+    public function resolve(
+        Issue $issue,
+        User $technician,
+        string $rootCause,
+        string $actionTaken,
+        ?string $partsUsed,
+        int $minutesSpent,
+    ): Resolution {
+        $rootCause = trim($rootCause);
+        $actionTaken = trim($actionTaken);
+        $partsUsed = $this->normalizeReason($partsUsed);
+
+        if ($rootCause === '' || $actionTaken === '') {
+            throw new InvalidArgumentException('Root cause and action taken are required to resolve an issue.');
+        }
+
+        if ($minutesSpent < 0) {
+            throw new InvalidArgumentException('Minutes spent cannot be negative.');
+        }
+
+        return DB::transaction(function () use (
+            $issue,
+            $technician,
+            $rootCause,
+            $actionTaken,
+            $partsUsed,
+            $minutesSpent,
+        ): Resolution {
+            $lockedIssue = Issue::query()
+                ->whereKey($issue->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $from = $this->statusOf($lockedIssue);
+
+            if (! $from->canTransitionTo(IssueStatus::Resolved)) {
+                throw new InvalidIssueTransition($from, IssueStatus::Resolved);
+            }
+
+            Gate::forUser($technician)->authorize(
+                'transitionStatus',
+                [$lockedIssue, IssueStatus::Resolved],
+            );
+
+            $assignment = Assignment::query()
+                ->where('issue_id', $lockedIssue->getKey())
+                ->where('technician_id', $technician->getKey())
+                ->whereNotNull('accepted_at')
+                ->whereNull('released_at')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $resolution = Resolution::query()->create([
+                'issue_id' => $lockedIssue->getKey(),
+                'assignment_id' => $assignment->getKey(),
+                'resolved_by' => $technician->getKey(),
+                'root_cause' => $rootCause,
+                'action_taken' => $actionTaken,
+                'parts_used' => $partsUsed,
+                'minutes_spent' => $minutesSpent,
+            ]);
+
+            $this->transition($lockedIssue, IssueStatus::Resolved, $technician);
+
+            $assignment->forceFill(['released_at' => now()])->saveOrFail();
+
+            return $resolution;
+        });
+    }
+
+    public function close(Issue $issue, User $reporter): StatusHistory
+    {
+        return $this->transition($issue, IssueStatus::Closed, $reporter);
+    }
+
+    public function reopen(Issue $issue, User $reporter, string $reason): StatusHistory
+    {
+        return $this->transition($issue, IssueStatus::Reopened, $reporter, $reason);
     }
 
     public function transition(
