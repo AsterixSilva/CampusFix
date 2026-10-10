@@ -18,14 +18,41 @@ final class IssueReviewQueue extends Component
 
     public array $rejectionReasons = [];
 
+    public array $priorities = [];
+
+    public array $duplicateTargets = [];
+
     public function verify(int $issueId, IssueWorkflow $workflow): void
     {
         $coordinator = $this->coordinator();
+        $this->validate([
+            "priorities.{$issueId}" => ['nullable', 'in:low,medium,high,critical'],
+        ]);
         $issue = Issue::query()->findOrFail($issueId);
 
-        $workflow->verify($issue, $coordinator);
+        $workflow->verify($issue, $coordinator, priority: $this->priorities[$issueId] ?? 'medium');
 
+        unset($this->priorities[$issueId]);
         session()->flash('workflow-status', 'Issue verified.');
+        $this->resetPage();
+    }
+
+    public function mergeDuplicate(int $issueId, IssueWorkflow $workflow): void
+    {
+        $coordinator = $this->coordinator();
+        $this->validate([
+            "duplicateTargets.{$issueId}" => ['required', 'integer', 'exists:issues,id'],
+        ]);
+
+        $duplicate = Issue::query()
+            ->whereIn('status', [IssueStatus::Reported->value, IssueStatus::Reopened->value])
+            ->findOrFail($issueId);
+        $canonical = Issue::query()->findOrFail((int) $this->duplicateTargets[$issueId]);
+
+        $workflow->merge($duplicate, $canonical, $coordinator);
+
+        unset($this->duplicateTargets[$issueId]);
+        session()->flash('workflow-status', 'Duplicate merged into issue #'.$canonical->getKey().'.');
         $this->resetPage();
     }
 
@@ -54,6 +81,12 @@ final class IssueReviewQueue extends Component
                 ->whereIn('status', [IssueStatus::Reported->value, IssueStatus::Reopened->value])
                 ->orderBy('created_at')
                 ->paginate(20),
+            'mergeCandidates' => Issue::query()
+                ->whereNotIn('status', [IssueStatus::Rejected->value, IssueStatus::Merged->value])
+                ->whereNull('merged_into_issue_id')
+                ->orderByDesc('created_at')
+                ->limit(100)
+                ->get(['id', 'title', 'status', 'category_id', 'location_id']),
         ]);
     }
 

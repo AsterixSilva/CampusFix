@@ -6,6 +6,7 @@ use App\Models\Attachment;
 use App\Models\Category;
 use App\Models\Issue;
 use App\Models\Location;
+use App\Services\IssueWorkflow;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
@@ -45,7 +46,7 @@ new class extends Component {
     }
 
 
-    public function save(): void
+    public function save(IssueWorkflow $workflow): void
     {
         $validated = $this->validate();
 
@@ -100,14 +101,13 @@ new class extends Component {
                 $photoPath = $this->photo->store('issues', 'public');
             }
 
-            DB::transaction(function () use ($validated, $photoPath) {
+            DB::transaction(function () use ($validated, $photoPath, $workflow) {
                 // Simpan laporan.
                 $issue = Issue::create([
                     'title' => $validated['title'],
                     'description' => $validated['description'],
                     'category_id' => $validated['category_id'],
                     'location_id' => $validated['location_id'],
-                    'reporter_id' => Auth::id(),
                     'status' => 'reported',
                     'safety_flag' => $validated['safety_flag'],
                     'class_blocked' => $validated['class_blocked'],
@@ -117,6 +117,8 @@ new class extends Component {
                 $issue->reporters()->attach(Auth::id(), [
                     'relationship' => 'reporter',
                 ]);
+
+                $workflow->recordInitialReported($issue, Auth::user());
 
                 // Simpan metadata foto jika ada.
                 if ($photoPath) {
@@ -182,6 +184,29 @@ new class extends Component {
 
     public function render()
     {
+        $possibleDuplicates = collect();
+        $searchTerms = array_values(array_filter(
+            preg_split('/\s+/', mb_strtolower(trim($this->title))) ?: [],
+            static fn (string $term): bool => mb_strlen($term) >= 3,
+        ));
+
+        if ($searchTerms !== [] && $this->category_id && $this->location_id) {
+            $possibleDuplicates = Issue::query()
+                ->with(['category', 'location'])
+                ->where('category_id', $this->category_id)
+                ->where('location_id', $this->location_id)
+                ->whereNull('merged_into_issue_id')
+                ->whereIn('status', ['reported', 'verified', 'assigned', 'in_progress', 'on_hold', 'reopened'])
+                ->where(function ($query) use ($searchTerms): void {
+                    foreach ($searchTerms as $term) {
+                        $query->orWhere('title', 'like', '%'.$term.'%');
+                    }
+                })
+                ->latest()
+                ->limit(5)
+                ->get();
+        }
+
         return $this->view([
             'categories' => Category::where('is_active', true)
                 ->orderBy('name')
@@ -211,6 +236,7 @@ new class extends Component {
                 ->where('parent_id', $this->floor_id ?: null)
                 ->orderBy('name')
                 ->get(),
+            'possibleDuplicates' => $possibleDuplicates,
         ]);
     }
 }
@@ -267,6 +293,23 @@ new class extends Component {
             @error('title')
                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
             @enderror
+
+            @if ($possibleDuplicates->isNotEmpty())
+                <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                    <p class="font-medium text-amber-900">Mungkin ada laporan yang sama di lokasi ini</p>
+                    <p class="mt-1 text-sm text-amber-800">Buka salah satu laporan. Jika masalahnya sama, gunakan tombol “Saya juga terdampak”.</p>
+                    <ul class="mt-2 space-y-1 text-sm">
+                        @foreach ($possibleDuplicates as $duplicate)
+                            <li>
+                                <a class="font-medium text-blue-700 underline" href="{{ route('issues.show', $duplicate) }}">
+                                    #{{ $duplicate->getKey() }} · {{ $duplicate->title }}
+                                </a>
+                                <span class="text-slate-600">({{ str($duplicate->status)->replace('_', ' ')->title() }})</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
         </div>
 
         <div>

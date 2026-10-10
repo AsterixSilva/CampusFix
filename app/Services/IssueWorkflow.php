@@ -8,6 +8,7 @@ use App\Enums\IssueStatus;
 use App\Events\IssueStatusChanged;
 use App\Exceptions\InvalidIssueTransition;
 use App\Models\Assignment;
+use App\Models\Feedback;
 use App\Models\Issue;
 use App\Models\Resolution;
 use App\Models\StatusHistory;
@@ -64,8 +65,100 @@ final class IssueWorkflow
         Issue $issue,
         User $coordinator,
         ?string $reason = null,
+        string $priority = 'medium',
     ): StatusHistory {
-        return $this->transition($issue, IssueStatus::Verified, $coordinator, $reason);
+        if (! in_array($priority, ['low', 'medium', 'high', 'critical'], true)) {
+            throw new InvalidArgumentException('The selected issue priority is invalid.');
+        }
+
+        return $this->transitionWithAttributes(
+            $issue,
+            IssueStatus::Verified,
+            $coordinator,
+            $reason,
+            ['priority' => $priority],
+        );
+    }
+
+    public function merge(Issue $duplicate, Issue $canonical, User $coordinator): StatusHistory
+    {
+        if ((string) $duplicate->getKey() === (string) $canonical->getKey()) {
+            throw new DomainException('An issue cannot be merged into itself.');
+        }
+
+        return DB::transaction(function () use ($duplicate, $canonical, $coordinator): StatusHistory {
+            $ids = [$duplicate->getKey(), $canonical->getKey()];
+            sort($ids);
+
+            $lockedIssues = Issue::query()
+                ->whereIn('id', $ids)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            $source = $lockedIssues->get($duplicate->getKey());
+            $target = $lockedIssues->get($canonical->getKey());
+
+            if (! $source instanceof Issue || ! $target instanceof Issue) {
+                throw new DomainException('Both issues must exist before they can be merged.');
+            }
+
+            $sourceStatus = $this->statusOf($source);
+            $targetStatus = $this->statusOf($target);
+
+            if (! $sourceStatus->canTransitionTo(IssueStatus::Merged)) {
+                throw new InvalidIssueTransition($sourceStatus, IssueStatus::Merged);
+            }
+
+            if (
+                $targetStatus === IssueStatus::Merged
+                || $targetStatus === IssueStatus::Rejected
+                || $target->merged_into_issue_id !== null
+            ) {
+                throw new DomainException('The canonical issue must be an active, non-merged issue.');
+            }
+
+            if (
+                (string) $source->category_id !== (string) $target->category_id
+                || (string) $source->location_id !== (string) $target->location_id
+            ) {
+                throw new DomainException('Duplicate issues must have the same category and location.');
+            }
+
+            Gate::forUser($coordinator)->authorize(
+                'transitionStatus',
+                [$source, IssueStatus::Merged],
+            );
+
+            $now = now();
+            $participants = DB::table('issue_user')
+                ->where('issue_id', $source->getKey())
+                ->get(['user_id', 'relationship']);
+
+            foreach ($participants as $participant) {
+                DB::table('issue_user')->insertOrIgnore([
+                    'issue_id' => $target->getKey(),
+                    'user_id' => $participant->user_id,
+                    'relationship' => $participant->relationship,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
+            Assignment::query()
+                ->where('issue_id', $source->getKey())
+                ->whereNull('released_at')
+                ->update(['released_at' => $now, 'updated_at' => $now]);
+
+            return $this->transitionWithAttributes(
+                $source,
+                IssueStatus::Merged,
+                $coordinator,
+                'Duplicate of issue #'.$target->getKey(),
+                ['merged_into_issue_id' => $target->getKey()],
+            );
+        });
     }
 
     public function reject(
@@ -270,9 +363,31 @@ final class IssueWorkflow
         });
     }
 
-    public function close(Issue $issue, User $reporter): StatusHistory
+    public function close(
+        Issue $issue,
+        User $reporter,
+        ?int $rating = null,
+        ?string $comment = null,
+    ): StatusHistory
     {
-        return $this->transition($issue, IssueStatus::Closed, $reporter);
+        if ($rating !== null && ($rating < 1 || $rating > 5)) {
+            throw new InvalidArgumentException('Feedback rating must be between 1 and 5.');
+        }
+
+        $comment = $this->normalizeReason($comment);
+
+        return DB::transaction(function () use ($issue, $reporter, $rating, $comment): StatusHistory {
+            $history = $this->transition($issue, IssueStatus::Closed, $reporter);
+
+            if ($rating !== null) {
+                Feedback::query()->firstOrCreate(
+                    ['issue_id' => $issue->getKey(), 'user_id' => $reporter->getKey()],
+                    ['rating' => $rating, 'comment' => $comment],
+                );
+            }
+
+            return $history;
+        });
     }
 
     public function reopen(Issue $issue, User $reporter, string $reason): StatusHistory
@@ -286,10 +401,25 @@ final class IssueWorkflow
         User $actor,
         ?string $reason = null,
     ): StatusHistory {
+        if ($target === IssueStatus::Merged) {
+            throw new DomainException('Use the merge workflow so the canonical issue is recorded.');
+        }
+
+        return $this->transitionWithAttributes($issue, $target, $actor, $reason, []);
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function transitionWithAttributes(
+        Issue $issue,
+        IssueStatus $target,
+        User $actor,
+        ?string $reason,
+        array $attributes,
+    ): StatusHistory {
         $reason = $this->normalizeReason($reason);
         $this->assertRequiredReason($target, $reason);
 
-        return DB::transaction(function () use ($issue, $target, $actor, $reason): StatusHistory {
+        return DB::transaction(function () use ($issue, $target, $actor, $reason, $attributes): StatusHistory {
             $lockedIssue = Issue::query()
                 ->whereKey($issue->getKey())
                 ->lockForUpdate()
@@ -303,7 +433,7 @@ final class IssueWorkflow
 
             Gate::forUser($actor)->authorize('transitionStatus', [$lockedIssue, $target]);
 
-            $lockedIssue->forceFill(['status' => $target->value])->saveOrFail();
+            $lockedIssue->forceFill(['status' => $target->value] + $attributes)->saveOrFail();
 
             $history = StatusHistory::query()->create([
                 'issue_id' => $lockedIssue->getKey(),
@@ -345,7 +475,7 @@ final class IssueWorkflow
     private function assertRequiredReason(IssueStatus $target, ?string $reason): void
     {
         if (
-            in_array($target, [IssueStatus::Rejected, IssueStatus::OnHold, IssueStatus::Reopened], true)
+            in_array($target, [IssueStatus::Rejected, IssueStatus::OnHold, IssueStatus::Reopened, IssueStatus::Merged], true)
             && $reason === null
         ) {
             throw new DomainException(sprintf(

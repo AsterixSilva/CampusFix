@@ -20,20 +20,19 @@ enum IssueStatus: string
     /**
      * Allowed edges in the MVP workflow.
      *
-     * Merged is intentionally terminal and unreachable until duplicate merging
-     * has a confirmed target-issue contract.
+     * Merged issues point to a canonical issue and remain terminal.
      *
      * @var array<string, list<string>>
      */
     private const TRANSITIONS = [
-        'reported' => ['verified', 'rejected'],
-        'verified' => ['assigned', 'rejected'],
-        'assigned' => ['in_progress'],
+        'reported' => ['verified', 'rejected', 'merged'],
+        'verified' => ['assigned', 'rejected', 'merged'],
+        'assigned' => ['in_progress', 'merged'],
         'in_progress' => ['resolved', 'on_hold'],
         'on_hold' => ['in_progress'],
         'resolved' => ['closed', 'reopened'],
         'closed' => ['reopened'],
-        'reopened' => ['verified'],
+        'reopened' => ['verified', 'merged'],
         'rejected' => [],
         'merged' => [],
     ];

@@ -33,9 +33,27 @@
 
             <div class="flex flex-wrap gap-3 border-t border-slate-100 pt-4">
                 @if ($status === 'resolved')
-                    <button type="button" wire:click="closeIssue({{ $issue->getKey() }})" class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
-                        Confirm and close
-                    </button>
+                    <form wire:submit.prevent="closeIssue({{ $issue->getKey() }})" class="w-full space-y-2">
+                        <label for="feedback-rating-{{ $issue->getKey() }}" class="block text-sm font-medium text-slate-700">How was the resolution?</label>
+                        <select id="feedback-rating-{{ $issue->getKey() }}" wire:model="feedbackForms.{{ $issue->getKey() }}.rating" required class="rounded-lg border-slate-300 text-sm">
+                            <option value="">Choose a rating</option>
+                            <option value="5">5 · Very satisfied</option>
+                            <option value="4">4 · Satisfied</option>
+                            <option value="3">3 · Okay</option>
+                            <option value="2">2 · Unsatisfied</option>
+                            <option value="1">1 · Very unsatisfied</option>
+                        </select>
+                        @error('feedbackForms.'.$issue->getKey().'.rating')
+                            <p class="text-sm text-red-700">{{ $message }}</p>
+                        @enderror
+                        <textarea wire:model="feedbackForms.{{ $issue->getKey() }}.comment" rows="2" maxlength="2000" class="w-full rounded-lg border-slate-300 text-sm" placeholder="Optional feedback"></textarea>
+                        @error('feedbackForms.'.$issue->getKey().'.comment')
+                            <p class="text-sm text-red-700">{{ $message }}</p>
+                        @enderror
+                        <button type="submit" class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
+                            Confirm and close
+                        </button>
+                    </form>
                 @endif
 
                 <form wire:submit.prevent="reopenIssue({{ $issue->getKey() }})" class="w-full space-y-2">

@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Issue;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
 
 new class extends Component {
@@ -8,11 +9,20 @@ new class extends Component {
 
     public function mount(Issue $issue): void
     {
+        Gate::authorize('view', $issue);
+
         $this->issue = $issue->load([
             'category',
             'location.parent',
-            'reporter',
+            'mergedInto',
+            'reporters',
             'attachments',
+            'statusHistories.actor',
+            'comments.user',
+            'assignments.team',
+            'assignments.technician',
+            'assignments.resolution',
+            'resolutions.resolvedBy',
         ]);
     }
 
@@ -25,8 +35,8 @@ new class extends Component {
 
 <div class="mx-auto max-w-3xl space-y-6 p-6">
     <div>
-        <a href="{{ route('issues.create') }}" class="text-blue-600 hover:underline">
-            &larr; Kembali ke Form Laporan
+        <a href="{{ route('dashboard') }}" class="text-blue-600 hover:underline">
+            &larr; Kembali ke Dashboard
         </a>
 
         <h1 class="mt-4 text-2xl font-bold">
@@ -43,6 +53,15 @@ new class extends Component {
             <p class="mt-1 text-sm text-gray-500">
                 Status: {{ ucfirst(str_replace('_', ' ', $issue->status)) }}
             </p>
+            <p class="mt-1 text-sm text-gray-500">Priority: {{ ucfirst($issue->priority) }}</p>
+            @if ($issue->mergedInto)
+                <p class="mt-2 text-sm text-amber-800">
+                    This duplicate was merged into
+                    <a class="font-medium underline" href="{{ route('issues.show', $issue->mergedInto) }}">
+                        issue #{{ $issue->mergedInto->getKey() }}
+                    </a>.
+                </p>
+            @endif
         </div>
 
         <div>
@@ -62,8 +81,12 @@ new class extends Component {
 
         <div>
             <h3 class="font-semibold">Pelapor</h3>
-            <p>{{ $issue->reporter->name ?? 'Tidak tersedia' }}</p>
+            <p>{{ $issue->reporters->pluck('name')->join(', ') ?: 'Tidak tersedia' }}</p>
         </div>
+
+        @if (auth()->user()?->role === \App\Models\User::ROLE_MEMBER && $issue->status !== \App\Enums\IssueStatus::Merged->value)
+            <livewire:issues.me-too :issue="$issue" />
+        @endif
 
         <div>
             <h3 class="font-semibold">Informasi Tambahan</h3>
@@ -100,6 +123,54 @@ new class extends Component {
                 </div>
             </div>
         @endif
+
+        @if ($issue->resolutions->isNotEmpty())
+            <div>
+                <h3 class="font-semibold">Resolution</h3>
+                @foreach ($issue->resolutions as $resolution)
+                    <div class="mt-2 rounded border p-3">
+                        <p><span class="font-medium">Root cause:</span> {{ $resolution->root_cause }}</p>
+                        <p><span class="font-medium">Action taken:</span> {{ $resolution->action_taken }}</p>
+                        <p><span class="font-medium">Parts used:</span> {{ $resolution->parts_used ?: '—' }}</p>
+                        <p><span class="font-medium">Minutes spent:</span> {{ $resolution->minutes_spent }}</p>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
+        <div>
+            <h3 class="font-semibold">Status history</h3>
+            <ol class="mt-2 space-y-2">
+                @forelse ($issue->statusHistories as $history)
+                    <li class="border-l-2 border-blue-200 pl-3 text-sm">
+                        <p class="font-medium">
+                            {{ $history->from_status ? ucfirst(str_replace('_', ' ', $history->from_status)).' → ' : '' }}
+                            {{ ucfirst(str_replace('_', ' ', $history->to_status)) }}
+                        </p>
+                        <p class="text-gray-500">
+                            {{ $history->actor?->name ?? 'System' }} · {{ $history->created_at?->format('d M Y H:i') }}
+                        </p>
+                        @if ($history->reason)<p class="mt-1">{{ $history->reason }}</p>@endif
+                    </li>
+                @empty
+                    <li class="text-sm text-gray-500">Belum ada riwayat status.</li>
+                @endforelse
+            </ol>
+        </div>
+
+        <div>
+            <h3 class="font-semibold">Progress updates</h3>
+            <ul class="mt-2 space-y-2">
+                @forelse ($issue->comments as $comment)
+                    <li class="rounded bg-gray-50 p-3 text-sm">
+                        <p>{{ $comment->body }}</p>
+                        <p class="mt-1 text-xs text-gray-500">{{ $comment->user->name }} · {{ $comment->created_at?->format('d M Y H:i') }}</p>
+                    </li>
+                @empty
+                    <li class="text-sm text-gray-500">Belum ada pembaruan pekerjaan.</li>
+                @endforelse
+            </ul>
+        </div>
     </div>
 
 </div>

@@ -13,6 +13,42 @@ use Illuminate\Support\Facades\DB;
 
 final class IssuePolicy
 {
+    public function view(User $actor, Issue $issue): bool
+    {
+        if (in_array((string) $actor->role, ['coordinator', 'admin', 'super_admin'], true)) {
+            return true;
+        }
+
+        if ((string) $actor->role === 'member') {
+            return true;
+        }
+
+        if ((string) $actor->role === 'technician') {
+            return DB::table('assignments')
+                ->where('issue_id', $issue->getKey())
+                ->where('technician_id', $actor->getKey())
+                ->exists();
+        }
+
+        return DB::table('issue_user')
+            ->where('issue_id', $issue->getKey())
+            ->where('user_id', $actor->getKey())
+            ->exists();
+    }
+
+    public function reportMeToo(User $actor, Issue $issue): bool
+    {
+        return (string) $actor->role === 'member'
+            && in_array($this->statusOf($issue), [
+                IssueStatus::Reported,
+                IssueStatus::Verified,
+                IssueStatus::Assigned,
+                IssueStatus::InProgress,
+                IssueStatus::OnHold,
+                IssueStatus::Reopened,
+            ], true);
+    }
+
     public function recordInitialReported(User $actor, Issue $issue): bool
     {
         return (string) $actor->role === 'member'
@@ -72,7 +108,11 @@ final class IssuePolicy
             'reported->rejected',
             'verified->assigned',
             'verified->rejected',
-            'reopened->verified' => $this->isCoordinator($actor),
+            'reopened->verified',
+            'reported->merged',
+            'verified->merged',
+            'assigned->merged',
+            'reopened->merged' => $this->isCoordinator($actor),
 
             'assigned->in_progress',
             'in_progress->on_hold',

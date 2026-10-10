@@ -24,11 +24,6 @@ return new class extends Migration
                 ->constrained('locations')
                 ->restrictOnDelete();
 
-            // Pelapor
-            $table->foreignId('reporter_id')
-                ->constrained('users')
-                ->restrictOnDelete();
-
             // Status awal laporan
             $table->string('status', 30)->default('reported');
 
@@ -39,7 +34,6 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index('status');
-            $table->index('reporter_id');
         });
     }
 

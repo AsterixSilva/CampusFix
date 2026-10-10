@@ -73,6 +73,7 @@ final class IssueAssignmentQueue extends Component
             'teams' => Team::query()->orderBy('name')->get(),
             'technicians' => User::query()
                 ->where('role', 'technician')
+                ->with('teams')
                 ->orderBy('name')
                 ->get(),
         ]);

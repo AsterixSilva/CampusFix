@@ -41,7 +41,9 @@
                     <select id="technician-{{ $issue->getKey() }}" wire:model.defer="technicianIds.{{ $issue->getKey() }}" required class="mt-1 w-full rounded-lg border-slate-300 text-sm shadow-sm">
                         <option value="">Select a technician</option>
                         @foreach ($technicians as $technician)
-                            <option value="{{ $technician->getKey() }}">{{ $technician->name }}</option>
+                            @if ($technician->teams->contains('id', (int) ($teamIds[$issue->getKey()] ?? 0)))
+                                <option value="{{ $technician->getKey() }}">{{ $technician->name }}</option>
+                            @endif
                         @endforeach
                     </select>
                     @error('technicianIds.'.$issue->getKey())

@@ -19,16 +19,25 @@ final class ConfirmationQueue extends Component
 
     public array $reopenReasons = [];
 
+    public array $feedbackForms = [];
+
     public function closeIssue(int $issueId, IssueWorkflow $workflow): void
     {
         $reporter = $this->reporter();
+
+        $this->validate([
+            "feedbackForms.{$issueId}.rating" => ['required', 'integer', 'min:1', 'max:5'],
+            "feedbackForms.{$issueId}.comment" => ['nullable', 'string', 'max:2000'],
+        ]);
 
         $issue = $this->reporterIssues($reporter)
             ->where('status', IssueStatus::Resolved->value)
             ->findOrFail($issueId);
 
-        $workflow->close($issue, $reporter);
+        $form = $this->feedbackForms[$issueId];
+        $workflow->close($issue, $reporter, (int) $form['rating'], $form['comment'] ?? null);
 
+        unset($this->feedbackForms[$issueId]);
         session()->flash('workflow-status', 'Issue confirmed and closed.');
         $this->resetPage();
     }
