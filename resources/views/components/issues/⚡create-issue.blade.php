@@ -8,6 +8,7 @@ use App\Models\Issue;
 use App\Models\Location;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 
 new class extends Component {
     use WithFileUploads;
@@ -42,6 +43,7 @@ new class extends Component {
             'photo' => ['nullable', 'image', 'max:2048'],
         ];
     }
+
 
     public function save(): void
     {
@@ -79,6 +81,7 @@ new class extends Component {
 
             return;
         }
+
         // Pelapor harus sudah login.
         if (!Auth::check()) {
             $this->addError(
@@ -97,28 +100,35 @@ new class extends Component {
                 $photoPath = $this->photo->store('issues', 'public');
             }
 
-            // Simpan laporan dan ambil model Issue yang dibuat.
-            $issue = Issue::create([
-                'title' => $validated['title'],
-                'description' => $validated['description'],
-                'category_id' => $validated['category_id'],
-                'location_id' => $validated['location_id'],
-                'reporter_id' => Auth::id(),
-                'status' => 'reported',
-                'safety_flag' => $validated['safety_flag'],
-                'class_blocked' => $validated['class_blocked'],
-            ]);
-
-            // Simpan metadata foto jika ada lampiran.
-            if ($photoPath) {
-                Attachment::create([
-                    'issue_id' => $issue->id,
-                    'original_name' => $this->photo->getClientOriginalName(),
-                    'file_path' => $photoPath,
-                    'mime_type' => $this->photo->getMimeType(),
-                    'file_size' => $this->photo->getSize(),
+            DB::transaction(function () use ($validated, $photoPath) {
+                // Simpan laporan.
+                $issue = Issue::create([
+                    'title' => $validated['title'],
+                    'description' => $validated['description'],
+                    'category_id' => $validated['category_id'],
+                    'location_id' => $validated['location_id'],
+                    'reporter_id' => Auth::id(),
+                    'status' => 'reported',
+                    'safety_flag' => $validated['safety_flag'],
+                    'class_blocked' => $validated['class_blocked'],
                 ]);
-            }
+
+                // Hubungkan pengguna sebagai pelapor melalui tabel issue_user.
+                $issue->reporters()->attach(Auth::id(), [
+                    'relationship' => 'reporter',
+                ]);
+
+                // Simpan metadata foto jika ada.
+                if ($photoPath) {
+                    Attachment::create([
+                        'issue_id' => $issue->id,
+                        'original_name' => $this->photo->getClientOriginalName(),
+                        'file_path' => $photoPath,
+                        'mime_type' => $this->photo->getMimeType(),
+                        'file_size' => $this->photo->getSize(),
+                    ]);
+                }
+            });
 
             session()->flash(
                 'success',
@@ -135,7 +145,7 @@ new class extends Component {
                 'photo',
             ]);
         } catch (\Throwable $e) {
-            // Hapus file jika proses penyimpanan gagal.
+            // Hapus foto jika penyimpanan database gagal.
             if ($photoPath) {
                 Storage::disk('public')->delete($photoPath);
             }
@@ -143,6 +153,7 @@ new class extends Component {
             throw $e;
         }
     }
+
     public function updatedCampusId(): void
     {
         $this->faculty_id = '';

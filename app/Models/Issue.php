@@ -4,7 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+
 class Issue extends Model
 {
     protected $fillable = [
@@ -36,6 +38,7 @@ class Issue extends Model
         return $this->belongsTo(Location::class);
     }
 
+    // Relasi lama, dipertahankan sementara untuk transisi.
     public function reporter(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reporter_id');
@@ -44,5 +47,32 @@ class Issue extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(Attachment::class);
+    }
+
+    // Pengguna yang melaporkan masalah.
+    public function reporters(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'issue_user')
+            ->withPivot('relationship')
+            ->withTimestamps()
+            ->wherePivot('relationship', 'reporter');
+    }
+
+    // Pengguna yang terdampak masalah.
+    public function affectedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'issue_user')
+            ->withPivot('relationship')
+            ->withTimestamps()
+            ->wherePivot('relationship', 'affected');
+    }
+
+    // Pengguna yang mengikuti perkembangan laporan.
+    public function followers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'issue_user')
+            ->withPivot('relationship')
+            ->withTimestamps()
+            ->wherePivot('relationship', 'follower');
     }
 }
