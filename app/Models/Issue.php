@@ -14,8 +14,9 @@ class Issue extends Model
         'description',
         'category_id',
         'location_id',
-        'reporter_id',
         'status',
+        'priority',
+        'merged_into_issue_id',
         'safety_flag',
         'class_blocked',
     ];
@@ -33,15 +34,14 @@ class Issue extends Model
         return $this->belongsTo(Category::class);
     }
 
+    public function mergedInto(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'merged_into_issue_id');
+    }
+
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class);
-    }
-
-    // Relasi lama, dipertahankan sementara untuk transisi.
-    public function reporter(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'reporter_id');
     }
 
     public function attachments(): HasMany
@@ -74,5 +74,30 @@ class Issue extends Model
             ->withPivot('relationship')
             ->withTimestamps()
             ->wherePivot('relationship', 'follower');
+    }
+
+    public function statusHistories(): HasMany
+    {
+        return $this->hasMany(StatusHistory::class)->orderBy('id');
+    }
+
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(Assignment::class);
+    }
+
+    public function comments(): HasMany
+    {
+        return $this->hasMany(Comment::class)->latest();
+    }
+
+    public function resolutions(): HasMany
+    {
+        return $this->hasMany(Resolution::class)->latest();
+    }
+
+    public function feedback(): HasMany
+    {
+        return $this->hasMany(Feedback::class);
     }
 }

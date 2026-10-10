@@ -1,35 +1,54 @@
 # CampusFix
 
-CampusFix adalah platform pelaporan dan penyelesaian masalah fasilitas kampus. Mahasiswa dapat melaporkan kerusakan fasilitas, menyertakan lokasi dan foto, serta memberikan informasi mengenai tingkat urgensi masalah.
-
-## Fitur Utama
-
-* Pelaporan masalah fasilitas kampus.
-* Pemilihan kategori dan lokasi secara bertingkat.
-* Unggah foto sebagai bukti laporan.
-* Penandaan masalah keselamatan dan kegiatan kelas yang terganggu.
-* Pemantauan status serta penyelesaian laporan.
+CampusFix mengubah laporan fasilitas kampus menjadi alur kerja yang dapat dilacak: mahasiswa melapor, coordinator memverifikasi dan memberi prioritas, technician menerima serta mengerjakan tugas, lalu pelapor mengonfirmasi hasilnya. Setiap perubahan status masuk ke riwayat, dan pihak terkait menerima notifikasi.
 
 ## Teknologi
 
-* Laravel
-* PHP
-* MySQL
-* Livewire
-* HTML, CSS, dan JavaScript
+- PHP 8.3+
+- Laravel 12, Blade, Livewire 4, Alpine.js, Tailwind CSS
+- MySQL 8 dan Eloquent ORM
+- Laravel Policies, Notifications, Scheduler, dan database queue
+- PHPUnit
 
-## Persiapan Proyek
+## Fitur MVP
 
-1. Clone repository CampusFix.
-2. Jalankan `composer install`.
-3. Salin `.env.example` menjadi `.env`.
-4. Sesuaikan konfigurasi database pada `.env`.
-5. Jalankan `php artisan key:generate`.
-6. Jalankan `php artisan migrate --seed`.
-7. Jalankan `php artisan storage:link`.
-8. Jalankan `npm install` dan `npm run build`.
-9. Jalankan `php artisan serve`.
+- Register dan login; registrasi publik selalu membuat akun `member`.
+- Lima role: `member`, `technician`, `coordinator`, `admin`, `super_admin`.
+- Team `Facility` dan `IT Support`; teknisi merupakan anggota team, bukan role terpisah.
+- Laporan fasilitas dengan kategori, hierarki lokasi, foto, dan penanda keselamatan/dampak kelas.
+- Deteksi laporan serupa berdasarkan judul, kategori, dan lokasi; member dapat menandai “Saya juga terdampak”.
+- Verifikasi, penolakan, prioritas, assignment, accept/start, update progress, hold, resolution, konfirmasi, reopen, dan merge duplikat.
+- Status history append-only dan notification database yang dimasukkan ke queue.
+- Dashboard berisi ringkasan status, issue terbaru, notifikasi, dan rata-rata feedback.
 
-## Struktur Pengembangan
+Status issue hanya diubah oleh `App\Services\IssueWorkflow`; komponen Livewire tidak menetapkan status utama secara langsung.
 
-Proyek dikembangkan secara berkelompok dengan pembagian tugas autentikasi, pelaporan dan lokasi, alur penyelesaian laporan, serta dashboard dan notifikasi.
+## Menjalankan secara lokal
+
+1. Buat database MySQL 8 bernama `campusfix`, lalu salin `.env.example` ke `.env`.
+2. Atur `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, dan `DB_PASSWORD`.
+3. (Opsional) Atur `CAMPUSFIX_SUPER_ADMIN_NAME`, `CAMPUSFIX_SUPER_ADMIN_EMAIL`, dan password minimal 12 karakter untuk membuat akun super admin saat seeding. Jika kredensial tidak diisi, seeder tidak membuat akun admin.
+4. Jalankan:
+
+   ```sh
+   composer install
+   php artisan key:generate
+   php artisan migrate --seed
+   php artisan storage:link
+   npm install
+   npm run build
+   ```
+
+5. Jalankan aplikasi dan worker database queue:
+
+   ```sh
+   composer run dev
+   ```
+
+   Perintah development menjalankan server Laravel, worker queue, log viewer, dan Vite.
+
+Daftarkan teknisi melalui halaman pengguna admin dan pilih team mereka. Issue coordinator dan antrean teknisi tersedia di dashboard masing-masing role.
+
+## Pengujian
+
+Jalankan suite PHPUnit dengan `php artisan test` setelah dependensi dan database tersedia.
