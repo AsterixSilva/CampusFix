@@ -35,25 +35,22 @@ class AuthenticationTest extends TestCase
      */
     public function test_user_redirected_to_correct_dashboard()
     {
-        $member = User::factory()->create(['role' => 'member']);
-        $this->post('/login', ['email' => $member->email, 'password' => 'password']);
-        $this->assertRedirect('/member/dashboard');
+        $dashboards = [
+            'member' => '/member/dashboard',
+            'technician' => '/technician/dashboard',
+            'coordinator' => '/coordinator/dashboard',
+            'admin' => '/admin/dashboard',
+            'super_admin' => '/superadmin/dashboard',
+        ];
 
-        $tech = User::factory()->create(['role' => 'technician']);
-        $this->post('/login', ['email' => $tech->email, 'password' => 'password']);
-        $this->assertRedirect('/technician/dashboard');
+        foreach ($dashboards as $role => $path) {
+            $this->post('/logout');
 
-        $coord = User::factory()->create(['role' => 'coordinator']);
-        $this->post('/login', ['email' => $coord->email, 'password' => 'password']);
-        $this->assertRedirect('/coordinator.dashboard');
+            $user = User::factory()->create(['role' => $role]);
 
-        $admin = User::factory()->create(['role' => 'admin']);
-        $this->post('/login', ['email' => $admin->email, 'password' => 'password']);
-        $this->assertRedirect('/admin.dashboard');
-
-        $superAdmin = User::factory()->create(['role' => 'super_admin']);
-        $this->post('/login', ['email' => $superAdmin->email, 'password' => 'password']);
-        $this->assertRedirect('/superadmin.dashboard');
+            $this->post('/login', ['email' => $user->email, 'password' => 'password'])
+                ->assertRedirect($path);
+        }
     }
 
     /**
@@ -100,7 +97,7 @@ class AuthenticationTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->post('/logout');
+        $this->actingAs($user)->post('/logout');
 
         $this->assertGuest();
     }

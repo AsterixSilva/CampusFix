@@ -9,7 +9,7 @@ use App\Policies\TechnicianPolicy;
 use App\Policies\CoordinatorPolicy;
 use App\Policies\AdminPolicy;
 use App\Policies\SuperAdminPolicy;
-use Illuminate\Support\ServiceProvider;
+use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Gate;
 
 class AuthServiceProvider extends ServiceProvider

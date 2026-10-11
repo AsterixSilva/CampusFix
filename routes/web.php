@@ -22,6 +22,10 @@ Route::get('/', function () {
 Route::get('/login', [LoginController::class, 'create'])->name('login');
 Route::post('/login', [LoginController::class, 'store'])->name('login.post');
 
+// Public registration
+Route::get('/register', [RegisterController::class, 'create'])->name('register');
+Route::post('/register', [RegisterController::class, 'store'])->name('register.store');
+
 // Protected routes - require authentication
 Route::middleware(['auth'])->group(function () {
     
