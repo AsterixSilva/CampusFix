@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # CampusFix - Authentication & Authorization System
 
 Sistem AUTH & USER dengan role-based authorization untuk CampusFix.
@@ -10,7 +9,9 @@ Sistem AUTH & USER dengan role-based authorization untuk CampusFix.
 ```
 ├── app/
 │   ├── Models/
-│   │   └── User.php                 # Model User dengan role constants
+│   │   ├── User.php                 # Model User dengan role constants
+│   │   ├── Location.php             # Model lokasi (hierarki)
+│   │   └── Issue.php                # Model laporan issue (pivot reporters)
 │   ├── Policies/
 │   │   ├── UserPolicy.php           # Authorization untuk User
 │   │   ├── MemberPolicy.php         # Member tidak boleh akses admin
@@ -39,7 +40,8 @@ Sistem AUTH & USER dengan role-based authorization untuk CampusFix.
 │       └── AuthServiceProvider.php    # Registrasi policy
 ├── database/
 │   └── migrations/
-│       └── 2024_10_10_000000_create_users_table.php
+│       ├── 2024_10_10_000000_create_users_table.php
+│       └── 2026_10_10_102827_create_issue_user_table.php  # issue_user pivot
 ├── resources/
 │   ├── views/
 │   │   ├── auth/
@@ -134,6 +136,8 @@ Berdasarkan role:
 
 Semua controller menggunakan Policy untuk authorization:
 
+***
+
 ```php
 // Contoh penggunaan di controller
 public function index(Request $request)
@@ -195,6 +199,25 @@ php artisan serve
 - `GET /admin/dashboard` - Dashboard Admin
 - `GET /superadmin/dashboard` - Dashboard Super Admin
 
+## Fitur Lain (Integrasi dengan Member 2)
+
+Selain auth, project ini juga mencakup:
+
+### Model Lokasi (`app/Models/Location.php`)
+- Lokasi hierarkis bertingkat (campus -> faculty -> building -> floor -> room/area)
+- `getFullPathAttribute()` untuk mendapatkan path lengkap
+- `parent()` dan `children()` relations
+
+### Model Issue (`app/Models/Issue.php`)
+- `reporters()` - users yang melaporkan (via pivot issue_user)
+- `affectedUsers()` - users yang terdampak
+- `followers()` - users yang mengikuti perkembangan
+- Relasi ke category, location, attachments, dan reporter
+
+### Migration `issue_user` (`database/migrations/2026_10_10_102827_create_issue_user_table.php`)
+- Tabel pivot `issue_user` untuk hubungan many-to-many antara issues dan users
+- Kolom `relationship` dengan enum: `reporter`, `affected`, `follower`
+
 ## Catatan untuk Anggota Tim
 
 1. **Jangan ubah struktur database** tanpa konsensus
@@ -204,27 +227,5 @@ php artisan serve
 5. **Review code** sebelum merge ke main
 
 ---
+
 *Created for CampusFix - Team Member 1*
-=======
-# CampusFix
-
-CampusFix tracks campus facility issues from report through verification, technician work, resolution, and reporter confirmation.
-
-## Stack
-
-- Laravel and PHP 8.3+
-- MySQL 8
-- Blade, Livewire, Alpine.js, Tailwind CSS
-- Eloquent, Laravel Policies, Notifications, and Scheduler
-- Database queue for development
-
-## Issue lifecycle
-
-`reported → verified → assigned → in_progress → resolved → closed`
-
-Additional states are `rejected`, `on_hold`, `reopened`, and `merged`. Status changes are handled through the issue workflow service and recorded in append-only status history.
-
-## Team workflow
-
-`main` is the integration branch. Each member develops their assigned work on a separate branch for later integration.
->>>>>>> a340c0414c99d07e0b12ed42e0575b251605283e
