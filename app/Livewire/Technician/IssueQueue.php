@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Livewire\Technician;
 
 use App\Models\Assignment;
+use App\Models\Comment;
 use App\Models\Issue;
 use App\Models\User;
 use App\Services\IssueWorkflow;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
 
@@ -107,7 +107,7 @@ final class IssueQueue extends Component
         $technician = $this->technician();
 
         $assignments = Assignment::query()
-            ->with('issue')
+            ->with('issue.location.parent.parent.parent.parent')
             ->where('technician_id', $technician->getKey())
             ->whereNull('released_at')
             ->orderByDesc('assigned_at')
@@ -116,7 +116,7 @@ final class IssueQueue extends Component
         $issueIds = $assignments->getCollection()->pluck('issue_id')->all();
         $comments = $issueIds === []
             ? collect()
-            : DB::table('comments')
+            : Comment::query()
                 ->whereIn('issue_id', $issueIds)
                 ->orderByDesc('created_at')
                 ->limit(100)

@@ -29,7 +29,7 @@ final class SuperAdminSeeder extends Seeder
         $user = User::query()->firstOrCreate(
             ['email' => mb_strtolower($email)],
             [
-                'name' => env('CAMPUSFIX_SUPER_ADMIN_NAME') ?: 'CampusFix Super Admin',
+                'name' => env('CAMPUSFIX_SUPER_ADMIN_NAME') ?: 'CampusFix UNIMED Super Admin',
                 'password' => Hash::make($password),
                 'role' => User::ROLE_SUPER_ADMIN,
                 'is_active' => true,

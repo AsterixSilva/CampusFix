@@ -9,6 +9,7 @@ use App\Events\IssueStatusChanged;
 use App\Exceptions\InvalidIssueTransition;
 use App\Models\Assignment;
 use App\Models\Feedback;
+use App\Models\GuestIssueReporter;
 use App\Models\Issue;
 use App\Models\Resolution;
 use App\Models\StatusHistory;
@@ -17,6 +18,8 @@ use App\Models\User;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
+use Illuminate\Auth\Access\AuthorizationException;
 use InvalidArgumentException;
 use LogicException;
 use UnexpectedValueException;
@@ -53,6 +56,45 @@ final class IssueWorkflow
                 'to_status' => IssueStatus::Reported->value,
                 'actor_id' => $actor->getKey(),
                 'reason' => $this->normalizeReason($reason),
+            ]);
+
+            $this->dispatchAfterCommit($history);
+
+            return $history;
+        });
+    }
+
+    public function recordGuestInitialReported(Issue $issue): StatusHistory
+    {
+        return DB::transaction(function () use ($issue): StatusHistory {
+            $lockedIssue = Issue::query()
+                ->whereKey($issue->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $hasVerifiedGuestReporter = GuestIssueReporter::query()
+                ->where('issue_id', $lockedIssue->getKey())
+                ->whereNotNull('email_verified_at')
+                ->exists();
+
+            if (! $hasVerifiedGuestReporter) {
+                throw new AuthorizationException('A guest report must have a verified email before it enters the workflow.');
+            }
+
+            if ($this->statusOf($lockedIssue) !== IssueStatus::Reported) {
+                throw new DomainException('Only a reported issue can receive its initial status history.');
+            }
+
+            if (StatusHistory::query()->where('issue_id', $lockedIssue->getKey())->exists()) {
+                throw new LogicException('Initial status history has already been recorded for this issue.');
+            }
+
+            $history = StatusHistory::query()->create([
+                'issue_id' => $lockedIssue->getKey(),
+                'from_status' => null,
+                'to_status' => IssueStatus::Reported->value,
+                'actor_id' => null,
+                'reason' => 'Guest reporter email verified.',
             ]);
 
             $this->dispatchAfterCommit($history);
@@ -122,8 +164,10 @@ final class IssueWorkflow
             if (
                 (string) $source->category_id !== (string) $target->category_id
                 || (string) $source->location_id !== (string) $target->location_id
+                || $this->normalizeLocationDetail($source->location_detail)
+                    !== $this->normalizeLocationDetail($target->location_detail)
             ) {
-                throw new DomainException('Duplicate issues must have the same category and location.');
+                throw new DomainException('Duplicate issues must have the same category and exact location.');
             }
 
             Gate::forUser($coordinator)->authorize(
@@ -395,6 +439,24 @@ final class IssueWorkflow
         return $this->transition($issue, IssueStatus::Reopened, $reporter, $reason);
     }
 
+    public function closeAsGuest(Issue $issue, GuestIssueReporter $reporter): StatusHistory
+    {
+        return $this->transitionAsGuestReporter(
+            $issue,
+            $reporter,
+            IssueStatus::Closed,
+            'Confirmed by verified guest reporter.',
+        );
+    }
+
+    public function reopenAsGuest(
+        Issue $issue,
+        GuestIssueReporter $reporter,
+        string $reason,
+    ): StatusHistory {
+        return $this->transitionAsGuestReporter($issue, $reporter, IssueStatus::Reopened, $reason);
+    }
+
     public function transition(
         Issue $issue,
         IssueStatus $target,
@@ -449,6 +511,57 @@ final class IssueWorkflow
         });
     }
 
+    private function transitionAsGuestReporter(
+        Issue $issue,
+        GuestIssueReporter $reporter,
+        IssueStatus $target,
+        ?string $reason,
+    ): StatusHistory {
+        if (! in_array($target, [IssueStatus::Closed, IssueStatus::Reopened], true)) {
+            throw new LogicException('Guest reporters may only close or reopen their own issues.');
+        }
+
+        $reason = $this->normalizeReason($reason);
+        $this->assertRequiredReason($target, $reason);
+
+        return DB::transaction(function () use ($issue, $reporter, $target, $reason): StatusHistory {
+            $lockedIssue = Issue::query()
+                ->whereKey($issue->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $canAct = GuestIssueReporter::query()
+                ->whereKey($reporter->getKey())
+                ->where('issue_id', $lockedIssue->getKey())
+                ->whereNotNull('email_verified_at')
+                ->exists();
+
+            if (! $canAct) {
+                throw new AuthorizationException('This verified guest reporter cannot update the issue.');
+            }
+
+            $from = $this->statusOf($lockedIssue);
+
+            if (! $from->canTransitionTo($target)) {
+                throw new InvalidIssueTransition($from, $target);
+            }
+
+            $lockedIssue->forceFill(['status' => $target->value])->saveOrFail();
+
+            $history = StatusHistory::query()->create([
+                'issue_id' => $lockedIssue->getKey(),
+                'from_status' => $from->value,
+                'to_status' => $target->value,
+                'actor_id' => null,
+                'reason' => $reason,
+            ]);
+
+            $this->dispatchAfterCommit($history);
+
+            return $history;
+        });
+    }
+
     private function statusOf(Issue $issue): IssueStatus
     {
         $rawStatus = $issue->getRawOriginal('status') ?? $issue->getAttribute('status');
@@ -463,6 +576,11 @@ final class IssueWorkflow
                 $issue->getKey(),
                 (string) $rawStatus,
             ));
+    }
+
+    private function normalizeLocationDetail(?string $detail): string
+    {
+        return Str::lower(trim($detail ?? ''));
     }
 
     private function normalizeReason(?string $reason): ?string

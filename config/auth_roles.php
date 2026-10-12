@@ -5,7 +5,7 @@
  */
 return [
     'app' => [
-        'name' => 'CampusFix',
+        'name' => 'CampusFix UNIMED',
         'version' => '1.0.0',
         'environment' => env('APP_ENV', 'production'),
     ],

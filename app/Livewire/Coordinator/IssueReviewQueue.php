@@ -78,6 +78,7 @@ final class IssueReviewQueue extends Component
 
         return view('livewire.coordinator.issue-review-queue', [
             'issues' => Issue::query()
+                ->with('location.parent.parent.parent.parent')
                 ->whereIn('status', [IssueStatus::Reported->value, IssueStatus::Reopened->value])
                 ->orderBy('created_at')
                 ->paginate(20),
@@ -86,7 +87,7 @@ final class IssueReviewQueue extends Component
                 ->whereNull('merged_into_issue_id')
                 ->orderByDesc('created_at')
                 ->limit(100)
-                ->get(['id', 'title', 'status', 'category_id', 'location_id']),
+                ->get(['id', 'title', 'status', 'category_id', 'location_id', 'location_detail']),
         ]);
     }
 

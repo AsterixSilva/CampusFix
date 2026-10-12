@@ -67,7 +67,7 @@ final class ConfirmationQueue extends Component
 
         return view('livewire.reporter.confirmation-queue', [
             'issues' => $this->reporterIssues($reporter)
-                ->with('location')
+                ->with('location.parent.parent.parent.parent')
                 ->whereIn('status', [IssueStatus::Resolved->value, IssueStatus::Closed->value])
                 ->orderByDesc('updated_at')
                 ->paginate(20),

@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
             LocationSeeder::class,
             TeamSeeder::class,
             SuperAdminSeeder::class,
+            CampusAnnouncementSeeder::class,
         ]);
     }
 }

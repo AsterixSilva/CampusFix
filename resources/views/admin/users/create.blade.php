@@ -1,70 +1,68 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Buat User Baru - Admin</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root {
-            --background: #0a0a1a; --card: #1a1a2e; --border: #2d2d44;
-            --foreground: #ffffff; --muted-foreground: #a0a0c0; --accent: #6a5af0;
-        }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--background); color: var(--foreground); }
-        .container { max-width: 600px; margin: 30px auto; padding: 20px; }
-        .card { background: var(--card); border-radius: 12px; padding: 24px; border: 1px solid var(--border); }
-        .card h2 { color: var(--foreground); margin-bottom: 16px; }
-        .form-group { margin-bottom: 16px; }
-        label { display: block; color: var(--muted-foreground); margin-bottom: 6px; }
-        input, select { width: 100%; padding: 10px 12px; background: var(--background); border: 1px solid var(--border); border-radius: 6px; color: var(--foreground); }
-        input:focus { outline: none; border-color: var(--accent); }
-        .btn { display: inline-block; padding: 10px 20px; background: var(--accent); color: white; border-radius: 6px; text-decoration: none; margin-top: 8px; }
-        .btn:hover { background: #5a4ae0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="card">
-            <h2>Buat User Baru</h2>
-            <form method="POST" action="{{ route('admin.users.store') }}">
-                @csrf
-                <div class="form-group">
-                    <label for="name">Nama</label>
-                    <input type="text" id="name" name="name" required value="{{ old('name') }}">
+<x-portal-layout title="Tambah pengguna">
+    <div class="mx-auto max-w-3xl space-y-6">
+        <header>
+            <a href="{{ route('admin.users.index') }}" class="text-sm font-semibold text-teal-800 hover:underline">← Kembali ke pengguna</a>
+            <p class="cf-eyebrow mt-5">Administrasi</p>
+            <h1 class="cf-page-title">Tambah pengguna</h1>
+            <p class="mt-2 text-sm text-slate-600">Buat akun kerja dan tentukan peran yang sesuai.</p>
+        </header>
+
+        @if ($errors->any())
+            <div role="alert" class="cf-alert cf-alert--error">
+                <ul class="list-disc space-y-1 pl-5">
+                    @foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach
+                </ul>
+            </div>
+        @endif
+
+        <form method="POST" action="{{ route('admin.users.store') }}" class="cf-panel cf-panel-body cf-form space-y-5" data-admin-user-form>
+            @csrf
+            <div>
+                <label for="name" class="cf-label">Nama</label>
+                <input type="text" id="name" name="name" required autocomplete="name" value="{{ old('name') }}" class="cf-input">
+            </div>
+            <div>
+                <label for="email" class="cf-label">Email</label>
+                <input type="email" id="email" name="email" required autocomplete="email" value="{{ old('email') }}" class="cf-input">
+            </div>
+            <div class="grid gap-5 sm:grid-cols-2">
+                <div>
+                    <label for="password" class="cf-label">Kata sandi</label>
+                    <input type="password" id="password" name="password" required autocomplete="new-password" class="cf-input">
                 </div>
-                <div class="form-group">
-                    <label for="email">Email</label>
-                    <input type="email" id="email" name="email" required value="{{ old('email') }}">
+                <div>
+                    <label for="password_confirmation" class="cf-label">Konfirmasi kata sandi</label>
+                    <input type="password" id="password_confirmation" name="password_confirmation" required autocomplete="new-password" class="cf-input">
                 </div>
-                <div class="form-group">
-                    <label for="password">Kata Sandi</label>
-                    <input type="password" id="password" name="password" required>
-                </div>
-                <div class="form-group">
-                    <label for="password_confirmation">Konfirmasi Kata Sandi</label>
-                    <input type="password" id="password_confirmation" name="password_confirmation" required>
-                </div>
-                <div class="form-group">
-                    <label for="role">Role</label>
-                    <select id="role" name="role" required>
-                        @foreach($roles as $role)
-                            <option value="{{ $role }}" {{ old('role') == $role ? 'selected' : '' }}>{{ ucfirst(str_replace('_', ' ', $role)) }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="team_ids">Tim teknisi (wajib untuk role Technician)</label>
-                    <select id="team_ids" name="team_ids[]" multiple size="{{ max(2, min(5, $teams->count())) }}">
-                        @foreach($teams as $team)
+            </div>
+            <div>
+                <label for="role" class="cf-label">Role</label>
+                <select id="role" name="role" required class="cf-input" data-admin-user-role>
+                    <option value="">Pilih role</option>
+                    @foreach ($roles as $role)
+                        <option value="{{ $role }}" @selected(old('role') === $role)>{{ ucfirst(str_replace('_', ' ', $role)) }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div id="technician-team-fields" data-technician-team-section @if (old('role') !== \App\Models\User::ROLE_TECHNICIAN) hidden @endif>
+                <label for="team_ids" class="cf-label">Tim teknisi <span class="font-normal text-slate-500">(wajib untuk teknisi)</span></label>
+                @if ($teams->isNotEmpty())
+                    <select id="team_ids" name="team_ids[]" multiple size="{{ max(2, min(5, $teams->count())) }}" class="cf-input" @if (old('role') !== \App\Models\User::ROLE_TECHNICIAN) disabled @endif @required(old('role') === \App\Models\User::ROLE_TECHNICIAN)>
+                        @foreach ($teams as $team)
                             <option value="{{ $team->getKey() }}" @selected(in_array($team->getKey(), old('team_ids', [])))>{{ $team->name }}</option>
                         @endforeach
                     </select>
-                    @error('team_ids')<p>{{ $message }}</p>@enderror
-                    @error('team_ids.*')<p>{{ $message }}</p>@enderror
-                </div>
-                <button type="submit" class="btn">Simpan</button>
-            </form>
-        </div>
+                    @error('team_ids')<p class="mt-1 text-sm text-red-700">{{ $message }}</p>@enderror
+                    @error('team_ids.*')<p class="mt-1 text-sm text-red-700">{{ $message }}</p>@enderror
+                    <p class="mt-1 text-xs text-slate-500">Pilih satu atau lebih tim yang menjadi cakupan teknisi.</p>
+                @else
+                    <p role="status" class="cf-alert cf-alert--warning text-sm">Belum ada tim. Jalankan <code>php artisan db:seed --class=TeamSeeder</code> untuk menambahkan tim Facility dan IT Support.</p>
+                @endif
+            </div>
+            <div class="flex flex-wrap gap-2 border-t border-slate-100 pt-5">
+                <button type="submit" class="cf-button cf-button--primary">Simpan pengguna</button>
+                <a href="{{ route('admin.users.index') }}" class="cf-button cf-button--secondary">Batal</a>
+            </div>
+        </form>
     </div>
-</body>
-</html>
+</x-portal-layout>

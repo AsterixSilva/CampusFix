@@ -22,6 +22,12 @@ final class IssueAssignmentQueue extends Component
 
     public array $technicianIds = [];
 
+    public function updatedTeamIds(mixed $teamId, string $issueId): void
+    {
+        unset($this->technicianIds[$issueId]);
+        $this->resetValidation("technicianIds.{$issueId}");
+    }
+
     public function assign(int $issueId, IssueWorkflow $workflow): void
     {
         $coordinator = $this->coordinator();
@@ -67,6 +73,7 @@ final class IssueAssignmentQueue extends Component
 
         return view('livewire.coordinator.issue-assignment-queue', [
             'issues' => Issue::query()
+                ->with('location.parent.parent.parent.parent')
                 ->whereIn('status', [IssueStatus::Verified->value, IssueStatus::Assigned->value])
                 ->orderBy('updated_at')
                 ->paginate(20),

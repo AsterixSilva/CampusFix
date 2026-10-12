@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Enums\IssueStatus;
 use App\Models\Feedback;
 use App\Models\Issue;
+use App\Models\Category;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
@@ -56,7 +57,7 @@ final class DashboardController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
-        $issues = Issue::query()->with(['category', 'location']);
+        $issues = Issue::query()->with(['category', 'location.parent.parent.parent.parent']);
 
         if ($area === 'member') {
             $issues->whereHas('reporters', fn ($query) => $query->whereKey($user->getKey()));
@@ -100,13 +101,16 @@ final class DashboardController extends Controller
         };
 
         return view('dashboards.index', [
-            'title' => 'Dashboard '.($area === 'super_admin' ? 'Super Admin' : ucfirst($area)),
+            'title' => $area === 'member' ? 'Beranda mahasiswa' : 'Dashboard '.($area === 'super_admin' ? 'Super Admin' : ucfirst($area)),
             'user' => $user,
             'counts' => $counts,
             'totalIssues' => array_sum($counts),
             'activeIssues' => $counts['reported'] + $counts['verified'] + $counts['assigned']
                 + $counts['in_progress'] + $counts['on_hold'] + $counts['reopened'],
             'recentIssues' => $issues->latest()->limit(8)->get(),
+            'categories' => $area === 'member'
+                ? Category::query()->orderForReporting()->get()
+                : collect(),
             'links' => $links,
             'userCount' => in_array($area, ['admin', 'super_admin'], true) ? User::query()->count() : null,
             'notifications' => $user->notifications()->latest()->limit(8)->get(),

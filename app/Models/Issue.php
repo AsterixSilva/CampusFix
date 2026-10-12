@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Issue extends Model
 {
@@ -14,6 +15,7 @@ class Issue extends Model
         'description',
         'category_id',
         'location_id',
+        'location_detail',
         'status',
         'priority',
         'merged_into_issue_id',
@@ -56,6 +58,11 @@ class Issue extends Model
             ->withPivot('relationship')
             ->withTimestamps()
             ->wherePivot('relationship', 'reporter');
+    }
+
+    public function guestReporter(): HasOne
+    {
+        return $this->hasOne(GuestIssueReporter::class);
     }
 
     // Pengguna yang terdampak masalah.

@@ -6,6 +6,8 @@ namespace App\Services;
 
 use App\Events\IssueStatusChanged;
 use App\Models\User;
+use App\Models\GuestIssueReporter;
+use App\Notifications\GuestIssueStatusUpdate;
 use App\Notifications\IssueStatusNotification;
 use Illuminate\Support\Facades\Notification;
 
@@ -41,12 +43,20 @@ final class NotifyIssueParticipants
             ->values();
 
         if ($recipientIds->isEmpty()) {
-            return;
+            // Guest reporters receive mail updates below, without a user account.
+        } else {
+            Notification::send(
+                User::query()->whereIn('id', $recipientIds)->get(),
+                new IssueStatusNotification($history),
+            );
         }
 
-        Notification::send(
-            User::query()->whereIn('id', $recipientIds)->get(),
-            new IssueStatusNotification($history),
-        );
+        GuestIssueReporter::query()
+            ->where('issue_id', $issue->getKey())
+            ->whereNotNull('email_verified_at')
+            ->pluck('email')
+            ->unique()
+            ->each(static fn (string $email) => Notification::route('mail', $email)
+                ->notify(new GuestIssueStatusUpdate($history)));
     }
 }

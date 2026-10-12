@@ -60,6 +60,10 @@ class UserController extends Controller
             'is_active' => ['boolean'],
             'team_ids' => ['exclude_unless:role,technician', 'required', 'array', 'min:1'],
             'team_ids.*' => ['integer', 'distinct', 'exists:teams,id'],
+        ], [
+            'team_ids.required' => 'Pilih minimal satu tim teknisi.',
+            'team_ids.min' => 'Pilih minimal satu tim teknisi.',
+            'team_ids.*.exists' => 'Tim teknisi yang dipilih tidak tersedia.',
         ]);
 
         $user = DB::transaction(function () use ($validated): User {

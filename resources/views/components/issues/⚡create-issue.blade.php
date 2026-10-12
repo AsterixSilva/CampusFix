@@ -18,10 +18,7 @@ new class extends Component {
     public string $description = '';
     public $category_id = '';
     public $location_id = '';
-    public $campus_id = '';
-    public $faculty_id = '';
-    public $building_id = '';
-    public $floor_id = '';
+    public string $location_detail = '';
     public bool $safety_flag = false;
     public bool $class_blocked = false;
     public $photo;
@@ -33,11 +30,8 @@ new class extends Component {
             'description' => ['required', 'string', 'min:10'],
             'category_id' => ['required', 'exists:categories,id'],
 
-            'campus_id' => ['required', 'integer', 'exists:locations,id'],
-            'faculty_id' => ['required', 'integer', 'exists:locations,id'],
-            'building_id' => ['required', 'integer', 'exists:locations,id'],
-            'floor_id' => ['required', 'integer', 'exists:locations,id'],
             'location_id' => ['required', 'integer', 'exists:locations,id'],
+            'location_detail' => ['nullable', 'string', 'max:255'],
 
             'safety_flag' => ['boolean'],
             'class_blocked' => ['boolean'],
@@ -50,34 +44,14 @@ new class extends Component {
     {
         $validated = $this->validate();
 
-        $selectedLocation = Location::with('parent.parent.parent.parent')
+        $selectedLocation = Location::query()
+            ->with('parent.parent.parent.parent')
             ->find($validated['location_id']);
 
-        $floor = $selectedLocation?->parent;
-        $building = $floor?->parent;
-        $faculty = $building?->parent;
-        $campus = $faculty?->parent;
-
-        $isValidLocation =
-            $selectedLocation !== null
-            && in_array($selectedLocation->type, ['room', 'area'], true)
-            && $floor !== null
-            && $floor->type === 'floor'
-            && $building !== null
-            && $building->type === 'building'
-            && $faculty !== null
-            && $faculty->type === 'faculty'
-            && $campus !== null
-            && $campus->type === 'campus'
-            && (int) $campus->id === (int) $validated['campus_id']
-            && (int) $faculty->id === (int) $validated['faculty_id']
-            && (int) $building->id === (int) $validated['building_id']
-            && (int) $floor->id === (int) $validated['floor_id'];
-
-        if (!$isValidLocation) {
+        if ($selectedLocation === null || ! $this->belongsToCampus($selectedLocation)) {
             $this->addError(
                 'location_id',
-                'Lokasi tidak sesuai dengan pilihan kampus, fakultas, gedung, atau lantai.'
+                'Pilih fakultas, gedung, atau fasilitas di lingkungan UNIMED.'
             );
 
             return;
@@ -108,6 +82,9 @@ new class extends Component {
                     'description' => $validated['description'],
                     'category_id' => $validated['category_id'],
                     'location_id' => $validated['location_id'],
+                    'location_detail' => filled($validated['location_detail'] ?? null)
+                        ? trim($validated['location_detail'])
+                        : null,
                     'status' => 'reported',
                     'safety_flag' => $validated['safety_flag'],
                     'class_blocked' => $validated['class_blocked'],
@@ -142,6 +119,7 @@ new class extends Component {
                 'description',
                 'category_id',
                 'location_id',
+                'location_detail',
                 'safety_flag',
                 'class_blocked',
                 'photo',
@@ -154,32 +132,6 @@ new class extends Component {
 
             throw $e;
         }
-    }
-
-    public function updatedCampusId(): void
-    {
-        $this->faculty_id = '';
-        $this->building_id = '';
-        $this->floor_id = '';
-        $this->location_id = '';
-    }
-
-    public function updatedFacultyId(): void
-    {
-        $this->building_id = '';
-        $this->floor_id = '';
-        $this->location_id = '';
-    }
-
-    public function updatedBuildingId(): void
-    {
-        $this->floor_id = '';
-        $this->location_id = '';
-    }
-
-    public function updatedFloorId(): void
-    {
-        $this->location_id = '';
     }
 
     public function render()
@@ -207,56 +159,68 @@ new class extends Component {
                 ->get();
         }
 
+        $campusId = Location::query()
+            ->where('type', 'campus')
+            ->whereNull('parent_id')
+            ->where('name', config('campus.location_name'))
+            ->value('id');
+
+        $locations = $campusId === null
+            ? collect()
+            : Location::query()
+                ->whereIn('type', ['faculty', 'building'])
+                ->where('name', 'not like', 'Lokasi contoh lama%')
+                ->where(function ($query) use ($campusId): void {
+                    $query->where('parent_id', $campusId)
+                        ->orWhereHas('parent', fn ($parent) => $parent
+                            ->where('type', 'faculty')
+                            ->where('parent_id', $campusId));
+                })
+                ->with('parent.parent.parent.parent')
+                ->orderBy('name')
+                ->get();
+
         return $this->view([
-            'categories' => Category::where('is_active', true)
-                ->orderBy('name')
-                ->get(),
+            'categories' => Category::query()->orderForReporting()->get(),
 
-            'campuses' => Location::where('type', 'campus')
-                ->whereNull('parent_id')
-                ->orderBy('name')
-                ->get(),
-
-            'faculties' => Location::where('type', 'faculty')
-                ->where('parent_id', $this->campus_id ?: null)
-                ->orderBy('name')
-                ->get(),
-
-            'buildings' => Location::where('type', 'building')
-                ->where('parent_id', $this->faculty_id ?: null)
-                ->orderBy('name')
-                ->get(),
-
-            'floors' => Location::where('type', 'floor')
-                ->where('parent_id', $this->building_id ?: null)
-                ->orderBy('name')
-                ->get(),
-
-            'finalLocations' => Location::whereIn('type', ['room', 'area'])
-                ->where('parent_id', $this->floor_id ?: null)
-                ->orderBy('name')
-                ->get(),
+            'locations' => $locations,
             'possibleDuplicates' => $possibleDuplicates,
         ]);
+    }
+
+    private function belongsToCampus(Location $location): bool
+    {
+        if (! in_array($location->type, ['faculty', 'building'], true)) {
+            return false;
+        }
+
+        $location->loadMissing('parent.parent.parent.parent');
+
+        while ($location->parent !== null) {
+            $location = $location->parent;
+        }
+
+        return $location->type === 'campus'
+            && $location->name === config('campus.location_name');
     }
 }
 ?>
 
-<div class="mx-auto max-w-3xl space-y-6 p-6">
+<div class="cf-page cf-page--narrow space-y-6">
     @if (session()->has('success'))
-        <div class="rounded bg-green-100 p-3 text-green-800">
+        <div class="rounded-xl border border-teal-200 bg-teal-50 p-4 text-teal-900">
             {{ session('success') }}
         </div>
     @endif
 
     @error('form')
-        <div class="rounded bg-red-100 p-3 text-red-800">
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
             {{ $message }}
         </div>
     @enderror
 
     @if ($errors->any())
-        <div class="rounded bg-red-100 p-3 text-red-800">
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
             <p class="font-bold">Laporan belum berhasil disimpan:</p>
             <ul class="list-disc pl-5">
                 @foreach ($errors->all() as $error)
@@ -265,14 +229,10 @@ new class extends Component {
             </ul>
         </div>
     @endif
-    <div>
-        <h1 class="text-2xl font-bold text-gray-900">
-            Buat Laporan Fasilitas
-        </h1>
-
-        <p class="mt-1 text-sm text-gray-600">
-            Laporkan masalah fasilitas kampus agar dapat ditindaklanjuti.
-        </p>
+    <div class="cf-report-heading">
+        <a href="{{ route('member.dashboard') }}" class="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-teal-800 hover:underline"><span aria-hidden="true">←</span> Kembali ke beranda</a>
+        <h1 class="text-2xl font-bold tracking-tight text-[#17343a]">Apa kendalanya?</h1>
+        <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-600">Ceritakan masalahnya. Tim fasilitas siap membantu menindaklanjuti.</p>
     </div>
 
     @if (session()->has('info'))
@@ -281,19 +241,68 @@ new class extends Component {
         </div>
     @endif
 
-    <form wire:submit="save" class="space-y-5">
+    <form wire:submit="save" class="cf-form cf-report-form cf-panel cf-panel-body space-y-6">
         <div>
-            <label for="title" class="mb-1 block font-medium">
-                Judul Masalah
-            </label>
+            <label class="mb-2 block text-sm font-semibold text-slate-800">Kategori masalah <span class="text-rose-600">*</span></label>
+            @if ($categories->isEmpty())
+                <p class="cf-alert cf-alert--warning text-sm">Kategori laporan belum tersedia. Admin perlu menjalankan seeder kategori.</p>
+            @else
+            <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                @foreach ($categories as $category)
+                    @php
+                        $categoryName = str($category->name)->lower()->toString();
+                        $categoryIcon = match (true) {
+                            str_contains($categoryName, 'wi-fi'), str_contains($categoryName, 'wifi'), str_contains($categoryName, 'jaringan') => '⌁',
+                            str_contains($categoryName, 'lampu'), str_contains($categoryName, 'listrik') => '☼',
+                            str_contains($categoryName, 'ac'), str_contains($categoryName, 'udara') => '❄',
+                            str_contains($categoryName, 'proyektor') => '▣',
+                            str_contains($categoryName, 'kursi'), str_contains($categoryName, 'mebel') => '▤',
+                            str_contains($categoryName, 'toilet'), str_contains($categoryName, 'air') => '♧',
+                            default => '＋',
+                        };
+                    @endphp
+                    <label for="category-{{ $category->id }}" class="cursor-pointer">
+                        <input id="category-{{ $category->id }}" type="radio" wire:model="category_id" value="{{ $category->id }}" class="peer sr-only">
+                        <span class="flex min-h-12 items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-slate-700 transition hover:border-teal-300 hover:bg-teal-50/50 peer-checked:border-teal-700 peer-checked:bg-teal-50 peer-checked:text-teal-900 peer-focus-visible:ring-4 peer-focus-visible:ring-teal-600/15">
+                            <span aria-hidden="true" class="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-lg text-teal-800">{{ $categoryIcon }}</span>{{ $category->name }}
+                        </span>
+                    </label>
+                @endforeach
+            </div>
+            @endif
 
-            <input id="title" type="text" wire:model="title" placeholder="Contoh: Wi-Fi lantai 3 tidak berfungsi"
-                class="w-full rounded-lg border border-gray-300 p-3">
-
-            @error('title')
+            @error('category_id')
                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
             @enderror
+        </div>
 
+        <div>
+            <label for="location_id" class="mb-1 block font-medium">Fakultas, gedung, atau fasilitas</label>
+            <select id="location_id" wire:model="location_id"
+                class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-teal-600 focus:bg-white focus:ring-4 focus:ring-teal-600/10">
+                <option value="">Pilih lokasi di kampus UNIMED</option>
+                @foreach ($locations as $location)
+                    <option value="{{ $location->id }}">{{ $location->full_path }}</option>
+                @endforeach
+            </select>
+            <p class="mt-1 text-xs text-slate-500">Pilih unit yang paling sesuai. Lantai atau nomor ruang dapat ditulis pada detail lokasi.</p>
+            @error('location_id')
+                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+            @enderror
+        </div>
+
+        <div>
+            <label for="location_detail" class="mb-1 block font-medium">Detail lokasi <span class="font-normal text-slate-500">(opsional)</span></label>
+            <input id="location_detail" type="text" wire:model="location_detail" maxlength="255" placeholder="Contoh: lantai 2, ruang 204, dekat tangga"
+                class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:bg-white focus:ring-4 focus:ring-teal-600/10">
+            @error('location_detail') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+        </div>
+
+        <div>
+            <label for="title" class="mb-1 block font-medium">Judul laporan</label>
+            <input id="title" type="text" wire:model="title" placeholder="Contoh: Wi-Fi lantai 3 tidak berfungsi"
+                class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-teal-600 focus:bg-white focus:ring-4 focus:ring-teal-600/10">
+            @error('title') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
             @if ($possibleDuplicates->isNotEmpty())
                 <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
                     <p class="font-medium text-amber-900">Mungkin ada laporan yang sama di lokasi ini</p>
@@ -301,9 +310,7 @@ new class extends Component {
                     <ul class="mt-2 space-y-1 text-sm">
                         @foreach ($possibleDuplicates as $duplicate)
                             <li>
-                                <a class="font-medium text-blue-700 underline" href="{{ route('issues.show', $duplicate) }}">
-                                    #{{ $duplicate->getKey() }} · {{ $duplicate->title }}
-                                </a>
+                                <a class="font-medium text-teal-800 underline" href="{{ route('issues.show', $duplicate) }}">#{{ $duplicate->getKey() }} · {{ $duplicate->title }}</a>
                                 <span class="text-slate-600">({{ str($duplicate->status)->replace('_', ' ')->title() }})</span>
                             </li>
                         @endforeach
@@ -313,120 +320,13 @@ new class extends Component {
         </div>
 
         <div>
-            <label for="category_id" class="mb-1 block font-medium">
-                Kategori Masalah
-            </label>
-
-            <select id="category_id" wire:model="category_id" class="w-full rounded-lg border border-gray-300 p-3">
-                <option value="">Pilih kategori masalah</option>
-
-                @foreach ($categories as $category)
-                    <option value="{{ $category->id }}">
-                        {{ $category->name }}
-                    </option>
-                @endforeach
-            </select>
-
-            @error('category_id')
-                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
-            @enderror
-        </div>
-
-        <div class="space-y-4">
-            <div>
-                <label for="campus_id" class="mb-1 block font-medium">
-                    Kampus
-                </label>
-                <select id="campus_id" wire:model.live="campus_id" class="w-full rounded-lg border border-gray-300 p-3">
-                    <option value="">Pilih kampus</option>
-                    @foreach ($campuses as $campus)
-                        <option value="{{ $campus->id }}">{{ $campus->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-        </div>
-        <p class="text-sm text-gray-500">
-            ID Kampus terpilih: {{ $campus_id ?: 'Belum terbaca' }}
-        </p>
-        <div>
-            <label for="faculty_id" class="mb-1 block font-medium">
-                Fakultas
-            </label>
-            <select id="faculty_id" wire:model.live="faculty_id" @disabled(!$campus_id)
-                class="w-full rounded-lg border p-2">
-                <option value="">Pilih Fakultas</option>
-
-                @foreach ($faculties as $faculty)
-                    <option value="{{ $faculty->id }}">
-                        {{ $faculty->name }}
-                    </option>
-                @endforeach
-            </select>
-
-            @error('faculty_id')
-                <p class="text-sm text-red-600">{{ $message }}</p>
-            @enderror
-        </div>
-        <p class="text-sm text-gray-500">
-            ID Fakultas terpilih: {{ $faculty_id ?: 'Belum terbaca' }}
-        </p>
-
-
-        <div>
-            <label for="building_id" class="mb-1 block font-medium">
-                Gedung
-            </label>
-            <select id="building_id" wire:model.live="building_id" @disabled(!$faculty_id)
-                class="w-full rounded-lg border border-gray-300 p-3">
-                <option value="">Pilih gedung</option>
-                @foreach ($buildings as $building)
-                    <option value="{{ $building->id }}">{{ $building->name }}</option>
-                @endforeach
-            </select>
-            @error('building_id')
-                <p class="text-sm text-red-600">{{ $message }}</p>
-            @enderror
-        </div>
-
-        <div>
-            <label for="floor_id" class="mb-1 block font-medium">
-                Lantai
-            </label>
-            <select id="floor_id" wire:model.live="floor_id" @disabled(!$building_id)
-                class="w-full rounded-lg border border-gray-300 p-3">
-                <option value="">Pilih lantai</option>
-                @foreach ($floors as $floor)
-                    <option value="{{ $floor->id }}">{{ $floor->name }}</option>
-                @endforeach
-            </select>
-        </div>
-
-        <div>
-            <label for="location_id" class="mb-1 block font-medium">
-                Ruangan atau Area
-            </label>
-            <select id="location_id" wire:model="location_id" @disabled(!$floor_id)
-                class="w-full rounded-lg border border-gray-300 p-3">
-                <option value="">Pilih ruangan atau area</option>
-                @foreach ($finalLocations as $location)
-                    <option value="{{ $location->id }}">{{ $location->name }}</option>
-                @endforeach
-            </select>
-            @error('location_id')
-                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
-            @enderror
-        </div>
-
-
-
-        <div>
             <label for="description" class="mb-1 block font-medium">
                 Deskripsi Masalah
             </label>
 
             <textarea id="description" wire:model="description" rows="4"
                 placeholder="Jelaskan masalah yang ditemukan..."
-                class="w-full rounded-lg border border-gray-300 p-3"></textarea>
+                class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-teal-600 focus:bg-white focus:ring-4 focus:ring-teal-600/10"></textarea>
 
             @error('description')
                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
@@ -439,7 +339,7 @@ new class extends Component {
             </label>
 
             <input id="photo" type="file" wire:model="photo" accept="image/*"
-                class="w-full rounded-lg border border-gray-300 p-3">
+                class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-teal-600 focus:bg-white focus:ring-4 focus:ring-teal-600/10">
 
             <p class="mt-1 text-sm text-gray-500">
                 Maksimal ukuran foto 2 MB.
@@ -459,7 +359,7 @@ new class extends Component {
             @endif
         </div>
 
-        <div class="space-y-3 rounded-lg border border-gray-200 p-4">
+        <div class="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
             <label class="flex items-start gap-3">
                 <input type="checkbox" wire:model="safety_flag" class="mt-1">
 
@@ -485,7 +385,7 @@ new class extends Component {
 
 
         <button type="submit" wire:loading.attr="disabled" wire:target="save"
-            class="rounded bg-blue-600 px-4 py-2 text-white">
+            class="cf-button cf-button--primary">
             <span wire:loading.remove wire:target="save">
                 Kirim Laporan
             </span>

@@ -73,6 +73,12 @@ class RoleAuthorizationTest extends TestCase
             ->get('/superadmin/dashboard');
 
         $response->assertStatus(200);
+
+        $this->get('/admin/users')->assertOk();
+        $this->get('/admin/users/create')->assertOk();
+        $this->get('/superadmin/roles')
+            ->assertOk()
+            ->assertSee('Daftar role');
     }
 
     /**

@@ -1,13 +1,14 @@
-<section class="mx-auto max-w-5xl space-y-6 p-6">
-    <header>
-        <h1 class="text-2xl font-semibold text-slate-900">Assigned issues</h1>
-        <p class="mt-1 text-sm text-slate-600">Accept an assignment, record work updates, and submit the resolution.</p>
+<section class="cf-page space-y-6">
+    <header class="cf-page-header">
+        <div>
+            <p class="cf-eyebrow">Teknisi · Ruang kerja</p>
+            <h1 class="cf-page-title">Tugas saya</h1>
+            <p class="mt-2 text-sm text-slate-600">Terima penugasan, catat progres, dan dokumentasikan penyelesaian.</p>
+        </div>
     </header>
 
     @if (session()->has('workflow-status'))
-        <div role="status" class="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
-            {{ session('workflow-status') }}
-        </div>
+        <div role="status" class="cf-alert cf-alert--success">{{ session('workflow-status') }}</div>
     @endif
 
     @forelse ($assignments as $assignment)
@@ -18,127 +19,92 @@
                 : (string) $issue->status;
         @endphp
 
-        <article wire:key="assignment-{{ $assignment->getKey() }}" class="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <article wire:key="assignment-{{ $assignment->getKey() }}" class="cf-panel cf-panel-body space-y-5">
             <div class="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                    <h2 class="text-lg font-semibold text-slate-900">
-                        {{ $issue->title ?: 'Issue #'.$issue->getKey() }}
-                    </h2>
-                    <p class="mt-1 text-sm text-slate-600">{{ $issue->description }}</p>
-                    <p class="mt-2 text-xs text-slate-500">
-                        Status: {{ ucwords(str_replace('_', ' ', $status)) }}
-                        · Assigned {{ $assignment->assigned_at?->diffForHumans() }}
-                    </p>
+                <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-teal-700">Laporan #{{ $issue->getKey() }}</p>
+                    <h2 class="mt-1 text-lg font-bold text-slate-900">{{ $issue->title ?: 'Laporan #'.$issue->getKey() }}</h2>
+                    <p class="mt-2 text-sm leading-6 text-slate-600">{{ $issue->description }}</p>
+                    <p class="mt-2 text-sm font-semibold text-slate-700">{{ $issue->location?->full_path ?? 'Lokasi UNIMED belum tersedia' }}@if ($issue->location_detail) · {{ $issue->location_detail }}@endif</p>
+                    <p class="mt-2 text-xs text-slate-500">Tim {{ $assignment->team?->name ?? '—' }} · Ditugaskan {{ $assignment->assigned_at?->diffForHumans() }}</p>
                 </div>
-
-                @if ($assignment->accepted_at === null)
-                    <button
-                        type="button"
-                        wire:click="accept({{ $assignment->getKey() }})"
-                        class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
-                    >
-                        Accept assignment
-                    </button>
-                @elseif ($status === 'assigned' || $status === 'on_hold')
-                    <button
-                        type="button"
-                        wire:click="startWork({{ $issue->getKey() }})"
-                        class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
-                    >
-                        {{ $status === 'on_hold' ? 'Resume work' : 'Start work' }}
-                    </button>
-                @endif
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="cf-badge cf-badge--teal">{{ str($status)->replace('_', ' ')->title() }}</span>
+                    @if ($assignment->accepted_at === null)
+                        <button type="button" wire:click="accept({{ $assignment->getKey() }})" class="cf-button cf-button--primary">Terima tugas</button>
+                    @elseif ($status === 'assigned' || $status === 'on_hold')
+                        <button type="button" wire:click="startWork({{ $issue->getKey() }})" class="cf-button cf-button--primary">{{ $status === 'on_hold' ? 'Lanjutkan pekerjaan' : 'Mulai pekerjaan' }}</button>
+                    @endif
+                </div>
             </div>
 
             @if (in_array($status, ['in_progress', 'on_hold'], true))
-                <div class="border-t border-slate-100 pt-4">
-                    <h3 class="text-sm font-semibold text-slate-800">Progress updates</h3>
+                <section class="space-y-4 border-t border-slate-100 pt-5">
+                    <div>
+                        <h3 class="font-semibold text-slate-800">Pembaruan progres</h3>
+                        @foreach ($commentsByIssue->get($issue->getKey(), collect()) as $comment)
+                            <p class="mt-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                                {{ $comment->body }}
+                                <span class="ml-2 text-xs text-slate-500">{{ $comment->created_at?->diffForHumans() }}</span>
+                            </p>
+                        @endforeach
+                    </div>
 
-                    @foreach ($commentsByIssue->get($issue->getKey(), collect()) as $comment)
-                        <p class="mt-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
-                            {{ $comment->body }}
-                            <span class="ml-2 text-xs text-slate-500">{{ $comment->created_at }}</span>
-                        </p>
-                    @endforeach
-
-                    <form wire:submit.prevent="updateProgress({{ $issue->getKey() }})" class="mt-3 space-y-2">
-                        <textarea
-                            wire:model.defer="progressUpdates.{{ $issue->getKey() }}"
-                            rows="2"
-                            maxlength="5000"
-                            class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-blue-600 focus:ring-blue-600"
-                            placeholder="Describe the work completed or next step."
-                        ></textarea>
-                        @error('progressUpdates.'.$issue->getKey())
-                            <p class="text-sm text-red-700">{{ $message }}</p>
-                        @enderror
-                        <button type="submit" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                            Save progress
-                        </button>
+                    <form wire:submit.prevent="updateProgress({{ $issue->getKey() }})" class="cf-form space-y-3">
+                        <label for="progress-{{ $issue->getKey() }}" class="cf-label">Catat perkembangan pekerjaan</label>
+                        <textarea id="progress-{{ $issue->getKey() }}" wire:model.defer="progressUpdates.{{ $issue->getKey() }}" rows="2" maxlength="5000" class="cf-input" placeholder="Tuliskan pekerjaan yang selesai atau langkah berikutnya."></textarea>
+                        @error('progressUpdates.'.$issue->getKey())<p class="text-sm text-red-700">{{ $message }}</p>@enderror
+                        <button type="submit" class="cf-button cf-button--secondary">Simpan progres</button>
                     </form>
-                </div>
+                </section>
             @endif
 
             @if ($status === 'in_progress')
-                <form wire:submit.prevent="hold({{ $issue->getKey() }})" class="space-y-2 border-t border-slate-100 pt-4">
-                    <label class="block text-sm font-medium text-slate-700">Put on hold</label>
-                    <input
-                        type="text"
-                        wire:model.defer="holdReasons.{{ $issue->getKey() }}"
-                        maxlength="2000"
-                        class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-blue-600 focus:ring-blue-600"
-                        placeholder="Why is work paused?"
-                    >
-                    @error('holdReasons.'.$issue->getKey())
-                        <p class="text-sm text-red-700">{{ $message }}</p>
-                    @enderror
-                    <button type="submit" class="rounded-lg border border-amber-300 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-50">
-                        Put on hold
-                    </button>
+                <form wire:submit.prevent="hold({{ $issue->getKey() }})" class="cf-form space-y-3 border-t border-slate-100 pt-5">
+                    <div>
+                        <label for="hold-{{ $issue->getKey() }}" class="cf-label">Tunda pekerjaan</label>
+                        <input id="hold-{{ $issue->getKey() }}" type="text" wire:model.defer="holdReasons.{{ $issue->getKey() }}" maxlength="2000" class="cf-input" placeholder="Jelaskan mengapa pekerjaan perlu ditunda.">
+                        @error('holdReasons.'.$issue->getKey())<p class="mt-1 text-sm text-red-700">{{ $message }}</p>@enderror
+                    </div>
+                    <button type="submit" class="cf-button cf-button--warning">Tandai tertunda</button>
                 </form>
 
-                <form wire:submit.prevent="resolve({{ $issue->getKey() }})" class="space-y-3 border-t border-slate-100 pt-4">
-                    <h3 class="text-sm font-semibold text-slate-800">Resolution record</h3>
+                <form wire:submit.prevent="resolve({{ $issue->getKey() }})" class="cf-form space-y-4 border-t border-slate-100 pt-5">
                     <div>
-                        <label class="block text-sm font-medium text-slate-700">Root cause</label>
-                        <textarea wire:model.defer="resolutionForms.{{ $issue->getKey() }}.root_cause" rows="2" maxlength="5000" class="mt-1 w-full rounded-lg border-slate-300 text-sm shadow-sm"></textarea>
-                        @error('resolutionForms.'.$issue->getKey().'.root_cause')
-                            <p class="text-sm text-red-700">{{ $message }}</p>
-                        @enderror
+                        <h3 class="font-semibold text-slate-800">Catatan penyelesaian</h3>
+                        <p class="mt-1 text-sm text-slate-500">Catatan ini akan terlihat oleh pelapor dan koordinator.</p>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700">Action taken</label>
-                        <textarea wire:model.defer="resolutionForms.{{ $issue->getKey() }}.action_taken" rows="2" maxlength="5000" class="mt-1 w-full rounded-lg border-slate-300 text-sm shadow-sm"></textarea>
-                        @error('resolutionForms.'.$issue->getKey().'.action_taken')
-                            <p class="text-sm text-red-700">{{ $message }}</p>
-                        @enderror
+                        <label for="root-cause-{{ $issue->getKey() }}" class="cf-label">Penyebab utama</label>
+                        <textarea id="root-cause-{{ $issue->getKey() }}" wire:model.defer="resolutionForms.{{ $issue->getKey() }}.root_cause" rows="2" maxlength="5000" class="cf-input"></textarea>
+                        @error('resolutionForms.'.$issue->getKey().'.root_cause')<p class="mt-1 text-sm text-red-700">{{ $message }}</p>@enderror
                     </div>
-                    <div class="grid gap-3 sm:grid-cols-2">
+                    <div>
+                        <label for="action-taken-{{ $issue->getKey() }}" class="cf-label">Tindakan perbaikan</label>
+                        <textarea id="action-taken-{{ $issue->getKey() }}" wire:model.defer="resolutionForms.{{ $issue->getKey() }}.action_taken" rows="2" maxlength="5000" class="cf-input"></textarea>
+                        @error('resolutionForms.'.$issue->getKey().'.action_taken')<p class="mt-1 text-sm text-red-700">{{ $message }}</p>@enderror
+                    </div>
+                    <div class="grid gap-4 sm:grid-cols-2">
                         <div>
-                            <label class="block text-sm font-medium text-slate-700">Parts used</label>
-                            <input type="text" wire:model.defer="resolutionForms.{{ $issue->getKey() }}.parts_used" maxlength="5000" class="mt-1 w-full rounded-lg border-slate-300 text-sm shadow-sm">
-                            @error('resolutionForms.'.$issue->getKey().'.parts_used')
-                                <p class="text-sm text-red-700">{{ $message }}</p>
-                            @enderror
+                            <label for="parts-used-{{ $issue->getKey() }}" class="cf-label">Suku cadang yang digunakan</label>
+                            <input id="parts-used-{{ $issue->getKey() }}" type="text" wire:model.defer="resolutionForms.{{ $issue->getKey() }}.parts_used" maxlength="5000" class="cf-input">
+                            @error('resolutionForms.'.$issue->getKey().'.parts_used')<p class="mt-1 text-sm text-red-700">{{ $message }}</p>@enderror
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700">Minutes spent</label>
-                            <input type="number" min="0" wire:model.defer="resolutionForms.{{ $issue->getKey() }}.minutes_spent" class="mt-1 w-full rounded-lg border-slate-300 text-sm shadow-sm">
-                            @error('resolutionForms.'.$issue->getKey().'.minutes_spent')
-                                <p class="text-sm text-red-700">{{ $message }}</p>
-                            @enderror
+                            <label for="minutes-spent-{{ $issue->getKey() }}" class="cf-label">Waktu pengerjaan (menit)</label>
+                            <input id="minutes-spent-{{ $issue->getKey() }}" type="number" min="0" wire:model.defer="resolutionForms.{{ $issue->getKey() }}.minutes_spent" class="cf-input">
+                            @error('resolutionForms.'.$issue->getKey().'.minutes_spent')<p class="mt-1 text-sm text-red-700">{{ $message }}</p>@enderror
                         </div>
                     </div>
-                    <button type="submit" class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
-                        Submit resolution
-                    </button>
+                    <button type="submit" class="cf-button cf-button--primary">Kirim penyelesaian</button>
                 </form>
             @endif
         </article>
     @empty
-        <p class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-slate-600">
-            No active assignments.
-        </p>
+        <div class="cf-empty-state">
+            <p class="font-semibold text-slate-700">Belum ada tugas aktif</p>
+            <p class="mt-1 text-sm">Penugasan baru dari koordinator akan muncul di sini.</p>
+        </div>
     @endforelse
 
     {{ $assignments->links() }}
