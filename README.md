@@ -49,6 +49,11 @@ Status issue hanya diubah oleh `App\Services\IssueWorkflow`; komponen Livewire t
 
 Daftarkan teknisi melalui halaman pengguna admin dan pilih team mereka. Issue coordinator dan antrean teknisi tersedia di dashboard masing-masing role.
 
+## Deployment ke Railway
+
+Panduan menyiapkan aplikasi, Railway MySQL, worker, scheduler, dan penyimpanan foto tersedia di [docs/railway-deployment.md](docs/railway-deployment.md).
+
 ## Pengujian
 
 Jalankan suite PHPUnit dengan `php artisan test` setelah dependensi dan database tersedia.
+
